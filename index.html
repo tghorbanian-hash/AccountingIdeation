@@ -1,0 +1,1833 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Idea Management System</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+
+    <script>
+        // Configuration for Tailwind
+        window.addEventListener('DOMContentLoaded', () => {
+            if (typeof tailwind !== 'undefined') {
+                tailwind.config = {
+                    theme: {
+                        extend: {
+                            fontFamily: {
+                                sans: ['Vazirmatn', 'Inter', 'sans-serif'],
+                            },
+                        },
+                    },
+                }
+            }
+        });
+    </script>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            "firebase/app": "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js",
+            "firebase/firestore": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js",
+            "firebase/auth": "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js",
+            "lucide-react": "https://esm.sh/lucide-react@0.294.0?external=react"
+        }
+    }
+    </script>
+
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body { background-color: #f8fafc; }
+        .gantt-grid {
+            background-image: linear-gradient(to right, #e2e8f0 1px, transparent 1px);
+        }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        
+        .gantt-container {
+            cursor: grab;
+            user-select: none;
+        }
+        .gantt-container:active {
+            cursor: grabbing;
+        }
+        .gantt-bar {
+            transition: transform 0.1s ease-out, width 0.1s ease-out;
+        }
+        /* MS Project Style Parent Bar */
+        .parent-bar-shape {
+            height: 8px;
+            background: #475569;
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            border-radius: 2px;
+        }
+        .parent-bar-endpoint {
+            position: absolute;
+            bottom: -6px;
+            width: 0;
+            height: 0;
+            border-left: 6px solid transparent;
+            border-right: 6px solid transparent;
+            border-top: 8px solid #475569;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useMemo, useCallback, memo, useRef } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import { initializeApp } from 'firebase/app';
+        import { 
+          initializeFirestore,
+          collection, 
+          doc, 
+          onSnapshot, 
+          addDoc, 
+          updateDoc, 
+          deleteDoc, 
+          setDoc,
+          query,
+          writeBatch
+        } from 'firebase/firestore';
+        import { 
+          getAuth, 
+          signInAnonymously, 
+          onAuthStateChanged 
+        } from 'firebase/auth';
+        import { 
+          Plus, 
+          Search, 
+          Tag, 
+          Link as LinkIcon, 
+          ChevronRight, 
+          ChevronDown, 
+          Image as ImageIcon, 
+          Trash2, 
+          Edit3, 
+          Layers, 
+          ChevronUp as ArrowUp, 
+          ChevronDown as ArrowDown, 
+          ChevronLeft,
+          ChevronRight as ArrowRight, 
+          Save,
+          Globe,
+          Layout,
+          Trello,
+          List,
+          X,
+          Info,
+          Palette,
+          FileText,
+          Move,
+          FolderPlus,
+          Settings,
+          Box,
+          CheckCircle,
+          MoreHorizontal,
+          Sliders,
+          Check,
+          Filter,
+          Hash,
+          AlertTriangle,
+          GripHorizontal,
+          Calendar,
+          Clock,
+          AlertCircle,
+          BarChart2,
+          CalendarDays,
+          ChevronFirst,
+          ChevronLast,
+          ArrowRight as IconArrowRight,
+          Maximize2,
+          SearchCode,
+          ZoomIn,
+          Hand,
+          MapPin,
+          Image,
+          Link
+        } from 'lucide-react';
+
+        // ------------------------------------------------------------------
+        // Utilities
+        // ------------------------------------------------------------------
+
+        const parseSafeDate = (dateStr) => {
+            if (!dateStr) return null;
+            const parts = dateStr.split('-');
+            if (parts.length === 3) {
+                return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]), 0, 0, 0, 0);
+            }
+            const d = new Date(dateStr);
+            return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+        };
+
+        const formatDateToISO = (date) => {
+            if (!date) return "";
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+
+        const getDaysDifference = (d1, d2) => {
+            if (!d1 || !d2) return 0;
+            const t1 = new Date(d1.getFullYear(), d1.getMonth(), d1.getDate()).getTime();
+            const t2 = new Date(d2.getFullYear(), d2.getMonth(), d2.getDate()).getTime();
+            return Math.round((t1 - t2) / (1000 * 60 * 60 * 24));
+        };
+
+        const firebaseConfig = {
+          apiKey: "AIzaSyBcVbacN57Mv3e-1iTtCMjjbQKU_GhENSM",
+          authDomain: "ideamanagement-99372.firebaseapp.com",
+          projectId: "ideamanagement-99372",
+          storageBucket: "ideamanagement-99372.firebasestorage.app",
+          messagingSenderId: "356445134444",
+          appId: "1:356445134444:web:fa73f9fd0a2b7ea1020249",
+          measurementId: "G-RVVPCQFX3G"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        
+        // FIX: Using initializeFirestore with experimentalForceLongPolling to resolve connection issues
+        const db = initializeFirestore(app, {
+          experimentalForceLongPolling: true,
+        });
+
+        const FIXED_APP_ID = 'discovery-hub-main-v1';
+
+        const COLOR_OPTIONS = [
+          { name: 'Default', bg: 'bg-white', border: 'border-slate-200', text: 'text-slate-800', badge: 'bg-slate-100 text-slate-600' },
+          { name: 'Indigo', bg: 'bg-indigo-50', border: 'border-indigo-200', text: 'text-indigo-900', badge: 'bg-indigo-600 text-white' },
+          { name: 'Emerald', bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-900', badge: 'bg-emerald-600 text-white' },
+          { name: 'Amber', bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-900', badge: 'bg-amber-600 text-white' },
+          { name: 'Rose', bg: 'bg-rose-50', border: 'border-rose-200', text: 'text-rose-900', badge: 'bg-rose-600 text-white' },
+          { name: 'Sky', bg: 'bg-sky-50', border: 'border-sky-200', text: 'text-sky-900', badge: 'bg-sky-600 text-white' },
+        ];
+
+        const STATUS_COLORS = [
+          { id: 'gray', bg: 'bg-slate-100', text: 'text-slate-600' },
+          { id: 'blue', bg: 'bg-blue-100', text: 'text-blue-700' },
+          { id: 'green', bg: 'bg-emerald-100', text: 'text-emerald-700' },
+          { id: 'yellow', bg: 'bg-amber-100', text: 'text-amber-700' },
+          { id: 'red', bg: 'bg-rose-100', text: 'text-rose-700' },
+          { id: 'purple', bg: 'bg-purple-100', text: 'text-purple-700' },
+        ];
+
+        const DEFAULT_SETTINGS = {
+          statuses: [
+            { id: 'todo', title: 'انجام نشده', titleEn: 'To Do', color: 'gray', isDefault: true },
+            { id: 'inprogress', title: 'در حال انجام', titleEn: 'In Progress', color: 'blue', isDefault: false },
+            { id: 'done', title: 'تکمیل شده', titleEn: 'Done', color: 'green', isDefault: false },
+          ]
+        };
+
+        const getTimeStatus = (idea) => {
+          if (!idea || idea.statusId === 'done') return null;
+          const today = formatDateToISO(new Date());
+          let status = null;
+          if (idea.endDate && today > idea.endDate) {
+            status = 'overdue';
+          } else if (idea.startDate && today >= idea.startDate) {
+            status = 'ready';
+          }
+          return status;
+        };
+
+        const getIdeaPath = (allIdeas, ideaId) => {
+           let path = [];
+           let current = allIdeas.find(i => i.id === ideaId);
+           while (current) {
+              path.unshift(current);
+              current = allIdeas.find(i => i.id === current.parentId);
+           }
+           return path;
+        };
+
+        const getEffectiveDates = (idea, allIdeas) => {
+            let start = idea.startDate ? parseSafeDate(idea.startDate) : null;
+            let end = idea.endDate ? parseSafeDate(idea.endDate) : null;
+
+            const children = allIdeas.filter(i => i.parentId === idea.id);
+            if (children.length > 0) {
+                children.forEach(child => {
+                    const childDates = getEffectiveDates(child, allIdeas);
+                    if (childDates.start) {
+                        if (!start || childDates.start < start) start = childDates.start;
+                    }
+                    if (childDates.end) {
+                        if (!end || childDates.end > end) end = childDates.end;
+                    }
+                });
+            }
+
+            return { start, end };
+        };
+
+        // --- UI Components ---
+
+        const IconButton = ({ icon: Icon, onClick, className = "", title = "", size = 14 }) => (
+          <button
+            onClick={onClick}
+            title={title}
+            className={`p-1.5 rounded-lg hover:bg-slate-200/50 text-slate-500 transition-all active:scale-90 flex items-center justify-center ${className}`}
+          >
+            <Icon size={size} />
+          </button>
+        );
+
+        const Button = ({ children, onClick, variant = 'primary', className = '', icon: Icon, type = "button" }) => {
+          const variants = {
+            primary: 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-100',
+            secondary: 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200',
+            danger: 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-100',
+            outline: 'border border-slate-200 text-slate-600 hover:bg-slate-50'
+          };
+
+          return (
+            <button
+              type={type}
+              onClick={onClick}
+              className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-all font-bold text-xs active:scale-95 ${variants[variant]} ${className}`}
+            >
+              {Icon && <Icon size={16} />}
+              {children}
+            </button>
+          );
+        };
+
+        const ConfirmDialog = ({ isOpen, onClose, onConfirm, title, message }) => {
+          if (!isOpen) return null;
+          return (
+            <div className="fixed inset-0 z-[300] flex items-center justify-center p-6">
+              <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-in fade-in" onClick={onClose}></div>
+              <div className="relative bg-white rounded-xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95 border-2 border-red-100">
+                <div className="flex flex-col items-center text-center gap-4">
+                  <div className="w-12 h-12 bg-red-50 text-red-500 rounded-xl flex items-center justify-center mb-2">
+                    <AlertTriangle size={24} />
+                  </div>
+                  <h3 className="text-base font-black text-slate-800">{title}</h3>
+                  <p className="text-xs text-slate-500 leading-relaxed font-bold">{message}</p>
+                  <div className="flex gap-2 w-full mt-2">
+                    <button onClick={onClose} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-lg text-xs font-black hover:bg-slate-200 transition-colors">انصراف</button>
+                    <button onClick={() => { onConfirm(); onClose(); }} className="flex-1 py-3 bg-red-500 text-white rounded-lg text-xs font-black hover:bg-red-600 shadow-lg shadow-red-200 transition-colors">بله، حذف شود</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        };
+
+        const SidebarItem = memo(({ idea, level = 0, langView, selectedId, onSelect, onExpand, expandedIds, onAddChild, onDragStart, onDrop, onRequestDelete }) => {
+          const isSelected = selectedId === idea.id;
+          const isExpanded = expandedIds.has(idea.id);
+          const title = langView === 'fa' ? (idea.title || 'بدون عنوان') : (idea.titleEn || 'No Title');
+          const colorData = COLOR_OPTIONS.find(c => c.name === idea.color) || COLOR_OPTIONS[0];
+          const [isOver, setIsOver] = useState(false);
+          const timeStatus = getTimeStatus(idea);
+
+          return (
+            <div 
+              className={`flex flex-col transition-all ${isOver ? 'bg-indigo-50/50 scale-[1.02] rounded-lg ring-1 ring-indigo-300' : ''}`}
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsOver(true); }}
+              onDragLeave={() => setIsOver(false)}
+              onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setIsOver(false); onDrop(e, idea.id, 'CARD'); }}
+            >
+              <div 
+                onClick={() => onSelect(idea)}
+                draggable
+                onDragStart={(e) => onDragStart(e, idea.id, 'CARD')}
+                className={`group flex items-center py-2 px-3 cursor-pointer rounded-lg mb-1 transition-all border-r-4 ${
+                  isSelected ? 'bg-indigo-600 text-white shadow-md border-indigo-400' : `${colorData.bg} ${colorData.border} hover:opacity-80 text-slate-700 border-transparent shadow-sm`
+                }`}
+                style={{ [langView === 'fa' ? 'marginRight' : 'marginLeft']: `${level * 12}px` }}
+              >
+                <button 
+                  onClick={(e) => { e.stopPropagation(); onExpand(idea.id); }}
+                  className={`p-1 rounded-lg transition-transform ${isExpanded ? 'rotate-0' : '-rotate-90'}`}
+                >
+                  {idea.children?.length > 0 ? <ChevronDown size={14} /> : <div className="w-3.5 h-3.5" />}
+                </button>
+                
+                <div className="flex-1 flex flex-col min-w-0 mx-2">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[9px] font-black px-1.5 rounded flex items-center justify-center min-w-[20px] h-4 shadow-sm ${isSelected ? 'bg-white text-indigo-600' : 'bg-slate-800 text-white'}`}>
+                      {idea.priority || 0}
+                    </span>
+                    <span className="flex-1 truncate text-xs font-bold flex items-center gap-1.5">
+                        {title}
+                        {timeStatus === 'overdue' && <AlertCircle size={10} className="text-red-500" />}
+                        {timeStatus === 'ready' && <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <IconButton icon={Trash2} size={12} onClick={(e) => { e.stopPropagation(); onRequestDelete(idea.id); }} className={isSelected ? "text-white/70 hover:bg-white/20" : "text-red-400 hover:bg-red-50"} />
+                  <IconButton icon={Plus} size={12} onClick={(e) => { e.stopPropagation(); onAddChild(idea.id); }} className={isSelected ? "text-white hover:bg-white/20" : ""} />
+                </div>
+              </div>
+              {isExpanded && idea.children?.map(child => (
+                <SidebarItem 
+                  key={child.id} idea={child} level={level + 1} langView={langView} selectedId={selectedId} 
+                  onSelect={onSelect} onExpand={onExpand} expandedIds={expandedIds} 
+                  onAddChild={onAddChild} onDragStart={onDragStart} onDrop={onDrop} onRequestDelete={onRequestDelete}
+                />
+              ))}
+            </div>
+          );
+        });
+
+        const BoardCard = memo(({ idea, level = 0, langView, onOpen, onStatusChange, settings, allIdeas, onDragStart, onDrop }) => {
+          const title = langView === 'fa' ? idea.title : idea.titleEn;
+          const children = allIdeas.filter(i => i.parentId === idea.id);
+          const colorData = COLOR_OPTIONS.find(c => c.name === idea.color) || COLOR_OPTIONS[0];
+          const [isOver, setIsOver] = useState(false);
+          const [isStatusMenuOpen, setIsStatusMenuOpen] = useState(false);
+          const menuRef = useRef(null);
+
+          const timeStatus = getTimeStatus(idea);
+          const status = settings?.statuses?.find(s => s.id === idea.statusId) || settings?.statuses?.find(s => s.isDefault) || { title: 'No Status', color: 'gray' };
+          const statusColor = STATUS_COLORS.find(c => c.id === status.color) || STATUS_COLORS[0];
+          const statusLabel = langView === 'fa' ? status.title : status.titleEn;
+
+          useEffect(() => {
+            const handleClickOutside = (event) => {
+              if (menuRef.current && !menuRef.current.contains(event.target)) {
+                setIsStatusMenuOpen(false);
+              }
+            };
+            if (isStatusMenuOpen) {
+              document.addEventListener("mousedown", handleClickOutside);
+            }
+            return () => document.removeEventListener("mousedown", handleClickOutside);
+          }, [isStatusMenuOpen]);
+
+          return (
+            <div 
+              className={`flex flex-col gap-1.5 p-3 rounded-lg border-l-[3px] transition-all cursor-pointer group shadow-sm relative hover:shadow-md hover:-translate-y-0.5 hover:z-50 ${colorData.bg} ${colorData.border} ${isOver ? 'ring-2 ring-indigo-500 ring-offset-2' : 'border-l-slate-300'} ${timeStatus === 'overdue' ? 'ring-2 ring-red-500 bg-red-50/30' : ''}`}
+              draggable
+              onDragStart={(e) => { e.stopPropagation(); onDragStart(e, idea.id, 'CARD'); }}
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsOver(true); }}
+              onDragLeave={(e) => { e.stopPropagation(); setIsOver(false); }}
+              onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setIsOver(false); onDrop(e, idea.id, 'CARD'); }}
+              onClick={(e) => { e.stopPropagation(); onOpen(idea); }}
+              style={{ borderLeftColor: colorData.name !== 'Default' ? undefined : '#cbd5e1' }} 
+            >
+              <div className="flex items-start gap-2 relative">
+                <span className={`flex-shrink-0 text-[9px] font-black w-5 h-5 flex items-center justify-center rounded-md ${colorData.badge}`}>
+                  {idea.priority || 0}
+                </span>
+                
+                <h4 className="flex-1 text-[11px] font-bold text-slate-800 leading-snug break-words flex items-center gap-1.5">
+                   {title}
+                   {timeStatus === 'ready' && <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-sm shadow-emerald-200" title="زمان اجرا فرا رسیده" />}
+                   {timeStatus === 'overdue' && <AlertCircle size={12} className="text-red-500 animate-bounce" title="تاخیر در تحویل" />}
+                </h4>
+
+                <div className="relative flex-shrink-0" ref={menuRef}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setIsStatusMenuOpen(!isStatusMenuOpen); }}
+                      className={`text-[9px] px-1.5 py-0.5 rounded font-bold whitespace-nowrap cursor-pointer hover:opacity-80 transition-opacity flex items-center gap-1 ${statusColor.bg} ${statusColor.text}`}
+                    >
+                       {statusLabel} <ChevronDown size={10} />
+                    </button>
+                    
+                    {isStatusMenuOpen && (
+                      <div 
+                        className="absolute right-0 top-full mt-2 w-36 bg-white rounded-lg shadow-2xl border border-slate-100 p-1.5 z-[200] animate-in fade-in zoom-in-95"
+                        onClick={(e) => e.stopPropagation()} 
+                      >
+                         {settings?.statuses?.map(s => {
+                            const sc = STATUS_COLORS.find(c => c.id === s.color);
+                            return (
+                              <div 
+                                 key={s.id}
+                                 onClick={() => { onStatusChange(idea, s.id); setIsStatusMenuOpen(false); }}
+                                 className={`flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-50 cursor-pointer text-[10px] font-bold transition-colors ${idea.statusId === s.id ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600'}`}
+                              >
+                                 <div className={`w-2 h-2 rounded-full ${sc?.bg.replace('bg-', 'bg-') || 'bg-slate-300'} ring-1 ring-black/5`} />
+                                 {langView === 'fa' ? s.title : s.titleEn}
+                              </div>
+                            )
+                         })}
+                      </div>
+                    )}
+                </div>
+              </div>
+
+              {(idea.startDate || idea.endDate) && (
+                  <div className="flex items-center gap-2 mt-0.5 opacity-60">
+                      {idea.startDate && <div className="flex items-center gap-1 text-[8px] font-bold text-slate-500 bg-white/40 px-1 rounded"><Calendar size={8}/> {idea.startDate}</div>}
+                      {idea.endDate && <div className={`flex items-center gap-1 text-[8px] font-bold px-1 rounded ${timeStatus === 'overdue' ? 'bg-red-100 text-red-600' : 'bg-white/40 text-slate-500'}`}><Clock size={8}/> {idea.endDate}</div>}
+                  </div>
+              )}
+              
+              {idea.tags?.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-0.5">
+                  {idea.tags.slice(0, 3).map((tag, i) => (
+                    <span key={i} className="text-[9px] px-1.5 py-0 rounded bg-white/50 text-slate-500 border border-black/5">
+                      {tag}
+                    </span>
+                  ))}
+                  {idea.tags.length > 3 && <span className="text-[8px] text-slate-400">+{idea.tags.length - 3}</span>}
+                </div>
+              )}
+
+              {children.length > 0 && (
+                <div className="mt-1 pl-2 space-y-2 border-l border-black/5 ml-1">
+                  {children.map(child => (
+                    <BoardCard 
+                      key={child.id} idea={child} level={level + 1} langView={langView} onOpen={onOpen} 
+                      onStatusChange={onStatusChange} settings={settings} allIdeas={allIdeas} onDragStart={onDragStart} onDrop={onDrop}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        });
+
+        const IdeaDetailsContent = ({ idea, onUpdate, onPriorityChange, settings, langView, onRequestDelete, allIdeas = [], workspaces = [] }) => {
+          const [activeTab, setActiveTab] = useState('docs');
+          const [newLinkUrl, setNewLinkUrl] = useState('');
+          const [newLinkLabel, setNewLinkLabel] = useState('');
+          const [isAddingLink, setIsAddingLink] = useState(false);
+
+          if (!idea) return null;
+
+          const handleAddLink = () => {
+            if (newLinkUrl) {
+              onUpdate({...idea, links: [...(idea.links || []), { url: newLinkUrl, label: newLinkLabel || 'Link' }]});
+              setNewLinkUrl('');
+              setNewLinkLabel('');
+              setIsAddingLink(false);
+            }
+          };
+
+          const handleImageUpload = (e) => {
+            const files = Array.from(e.target.files);
+            files.forEach(file => {
+              const reader = new FileReader();
+              reader.onload = () => {
+                const currentImages = idea.images || (idea.imageUrl ? [idea.imageUrl] : []);
+                onUpdate({...idea, images: [...currentImages, reader.result], imageUrl: null});
+              };
+              reader.readAsDataURL(file);
+            });
+          };
+
+          const removeImage = (index) => {
+            const currentImages = idea.images || (idea.imageUrl ? [idea.imageUrl] : []);
+            onUpdate({...idea, images: currentImages.filter((_, i) => i !== index)});
+          };
+
+          const path = getIdeaPath(allIdeas, idea.id);
+          const workspace = workspaces.find(w => w.id === idea.workspaceId);
+
+          const handleStartDateChange = (val) => {
+              let updates = { startDate: val };
+              if (val && idea.duration) {
+                  const d = parseSafeDate(val);
+                  d.setDate(d.getDate() + (parseInt(idea.duration) - 1));
+                  updates.endDate = formatDateToISO(d);
+              } else if (val && idea.endDate) {
+                  const start = parseSafeDate(val);
+                  const end = parseSafeDate(idea.endDate);
+                  updates.duration = (getDaysDifference(end, start) + 1).toString();
+              }
+              onUpdate({...idea, ...updates});
+          };
+
+          const handleDurationChange = (val) => {
+              let updates = { duration: val };
+              if (val) {
+                  if (idea.startDate) {
+                      const d = parseSafeDate(idea.startDate);
+                      d.setDate(d.getDate() + (parseInt(val) - 1));
+                      updates.endDate = formatDateToISO(d);
+                  } else if (idea.endDate) {
+                      const d = parseSafeDate(idea.endDate);
+                      d.setDate(d.getDate() - (parseInt(val) - 1));
+                      updates.startDate = formatDateToISO(d);
+                  }
+              }
+              onUpdate({...idea, ...updates});
+          };
+
+          const handleEndDateChange = (val) => {
+              let updates = { endDate: val };
+              if (val && idea.duration) {
+                  const d = parseSafeDate(val);
+                  d.setDate(d.getDate() - (parseInt(idea.duration) - 1));
+                  updates.startDate = formatDateToISO(d);
+              } else if (val && idea.startDate) {
+                  const end = parseSafeDate(val);
+                  const start = parseSafeDate(idea.startDate);
+                  updates.duration = (getDaysDifference(end, start) + 1).toString();
+              }
+              onUpdate({...idea, ...updates});
+          };
+
+          const imagesToShow = idea.images || (idea.imageUrl ? [idea.imageUrl] : []);
+
+          return (
+            <div className="flex flex-col gap-6">
+              {/* Header: Breadcrumbs & Combined Title Area */}
+              <div className="flex flex-col gap-3">
+                 <div className="flex items-center gap-2 flex-wrap px-4 py-2 bg-slate-50/80 rounded-lg border border-slate-100">
+                    <MapPin size={12} className="text-indigo-400" />
+                    {workspace && (
+                       <span className="text-[9px] font-black text-indigo-500 uppercase">
+                         {langView === 'fa' ? workspace.title : workspace.titleEn}
+                       </span>
+                    )}
+                    {path.map((p, idx) => (
+                      <React.Fragment key={p.id}>
+                         <ChevronLeft size={10} className="text-slate-300" />
+                         <span className={`text-[9px] font-bold ${idx === path.length - 1 ? 'text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md' : 'text-slate-500'}`}>
+                            {langView === 'fa' ? p.title : p.titleEn}
+                         </span>
+                      </React.Fragment>
+                    ))}
+                 </div>
+
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <input 
+                      className="w-full text-base font-black text-slate-800 bg-white border border-slate-200 rounded-lg px-4 py-2 outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-400 transition-all shadow-sm"
+                      placeholder="عنوان فارسی کانسپت"
+                      value={idea.title || ''}
+                      onChange={(e) => onUpdate({...idea, title: e.target.value})}
+                    />
+                    <input 
+                      className="w-full text-base font-bold text-indigo-600 bg-white border border-slate-200 rounded-lg px-4 py-2 outline-none font-sans shadow-sm"
+                      dir="ltr"
+                      placeholder="English Concept Title"
+                      value={idea.titleEn || ''}
+                      onChange={(e) => onUpdate({...idea, titleEn: e.target.value})}
+                    />
+                 </div>
+              </div>
+
+              {/* Advanced Horizontal Multi-Column Controls */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                 {/* Column 1: Timing */}
+                 <div className="p-4 bg-slate-50/50 rounded-lg border border-slate-100 flex flex-col gap-2.5">
+                    <h4 className="text-[10px] font-black text-indigo-500 uppercase tracking-widest flex items-center gap-2 mb-1 border-b border-slate-100 pb-1">
+                       <Clock size={12} /> زمان‌بندی
+                    </h4>
+                    <div className="flex items-center justify-between gap-3 bg-white px-3 py-1.5 rounded-lg border border-slate-200">
+                        <label className="text-[10px] font-black text-slate-400 whitespace-nowrap">شروع:</label>
+                        <input type="date" className="text-[11px] font-bold text-slate-700 bg-transparent outline-none cursor-pointer w-full text-left" value={idea.startDate || ''} onChange={(e) => handleStartDateChange(e.target.value)} />
+                    </div>
+                    <div className="flex items-center justify-between gap-3 bg-white px-3 py-1.5 rounded-lg border border-slate-200">
+                        <label className="text-[10px] font-black text-slate-400 whitespace-nowrap">مدت (روز):</label>
+                        <input type="number" className="text-[11px] font-bold text-slate-700 bg-transparent outline-none w-full text-left" placeholder="۵" value={idea.duration || ''} onChange={(e) => handleDurationChange(e.target.value)} />
+                    </div>
+                    <div className="flex items-center justify-between gap-3 bg-white px-3 py-1.5 rounded-lg border border-slate-200">
+                        <label className="text-[10px] font-black text-slate-400 whitespace-nowrap">پایان:</label>
+                        <input type="date" className="text-[11px] font-bold text-slate-700 bg-transparent outline-none cursor-pointer w-full text-left" value={idea.endDate || ''} onChange={(e) => handleEndDateChange(e.target.value)} />
+                    </div>
+                 </div>
+
+                 {/* Column 2: Status, Theme, Priority */}
+                 <div className="p-4 bg-slate-50/50 rounded-lg border border-slate-100 flex flex-col gap-2.5">
+                    <h4 className="text-[10px] font-black text-indigo-500 uppercase tracking-widest flex items-center gap-2 mb-1 border-b border-slate-100 pb-1">
+                       <Sliders size={12} /> ویژگی‌ها
+                    </h4>
+                    <div className="flex items-center justify-between bg-white px-3 py-1.5 rounded-lg border border-slate-200">
+                      <span className="text-[10px] font-black text-slate-400">وضعیت:</span>
+                      <select value={idea.statusId || settings?.statuses?.find(s => s.isDefault)?.id || ''} onChange={(e) => onUpdate({...idea, statusId: e.target.value})} className="text-[11px] font-bold text-indigo-600 outline-none bg-transparent cursor-pointer">
+                          {settings?.statuses?.map(s => (<option key={s.id} value={s.id}>{langView === 'fa' ? s.title : s.titleEn}</option>))}
+                      </select>
+                    </div>
+                    <div className="flex items-center justify-between bg-white px-3 py-1.5 rounded-lg border border-slate-200">
+                      <span className="text-[10px] font-black text-slate-400">رنگ:</span>
+                      <div className="flex gap-1">
+                        {COLOR_OPTIONS.map((opt) => (
+                          <button key={opt.name} onClick={() => onUpdate({...idea, color: opt.name})} className={`w-4 h-4 rounded-full border shadow-sm transition-all ${opt.bg} ${idea.color === opt.name ? 'ring-2 ring-indigo-500 scale-110' : 'border-slate-300'}`} />
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between bg-white px-3 py-1 rounded-lg border border-slate-200">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">اولویت:</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-base font-black text-indigo-600 w-5 text-center">{idea.priority || 0}</span>
+                        <div className="flex gap-1">
+                          <IconButton icon={ArrowUp} onClick={() => onPriorityChange(idea, -1)} className="bg-slate-50 p-1" size={10} />
+                          <IconButton icon={ArrowDown} onClick={() => onPriorityChange(idea, 1)} className="bg-slate-50 p-1" size={10} />
+                        </div>
+                      </div>
+                    </div>
+                 </div>
+
+                 {/* Column 3: Tags & Integrated Links */}
+                 <div className="p-4 bg-slate-50/50 rounded-lg border border-slate-100 flex flex-col gap-3">
+                    <h4 className="text-[10px] font-black text-indigo-500 uppercase tracking-widest flex items-center gap-2 mb-1 border-b border-slate-100 pb-1">
+                       <Tag size={12} /> تگ‌ها و پیوندها
+                    </h4>
+                    
+                    <div className="flex flex-col gap-2">
+                        <div className="flex flex-wrap gap-1 max-h-[60px] overflow-y-auto custom-scrollbar">
+                          {idea.tags?.map((tag, i) => (
+                            <span key={i} className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-md text-[9px] font-bold text-indigo-700">
+                              {tag}
+                              <button onClick={() => onUpdate({...idea, tags: idea.tags.filter((_, idx) => idx !== i)})} className="text-red-400 hover:text-red-600">×</button>
+                            </span>
+                          ))}
+                        </div>
+                        <input className="w-full text-[10px] px-2 py-1.5 border border-slate-200 rounded-md outline-none focus:border-indigo-400" placeholder="افزودن تگ..." onKeyDown={(e) => { if(e.key === 'Enter' && e.target.value) { onUpdate({...idea, tags: [...(idea.tags || []), e.target.value]}); e.target.value = ''; } }} />
+                    </div>
+
+                    <div className="mt-1 border-t border-slate-200 pt-2 flex flex-col gap-2">
+                       <div className="flex items-center justify-between">
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">لینک‌های مرتبط:</span>
+                          <button onClick={() => setIsAddingLink(!isAddingLink)} className="text-[9px] font-black text-indigo-600 hover:underline">{isAddingLink ? 'بستن' : '+ لینک جدید'}</button>
+                       </div>
+                       
+                       <div className="flex flex-col gap-1.5 max-h-[80px] overflow-y-auto custom-scrollbar">
+                          {idea.links?.map((link, i) => (
+                            <div key={i} className="flex items-center justify-between p-1.5 bg-white border border-slate-100 rounded-md text-[9px] font-bold text-indigo-600 shadow-sm group">
+                              <a href={link.url} target="_blank" rel="noreferrer" className="truncate flex-1 hover:underline">{link.label || 'Link'}</a>
+                              <button onClick={() => onUpdate({...idea, links: idea.links.filter((_, idx) => idx !== i)})} className="text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={10} /></button>
+                            </div>
+                          ))}
+                       </div>
+
+                       {isAddingLink && (
+                          <div className="flex flex-col gap-2 bg-indigo-50/50 p-2 rounded-lg border border-indigo-100 animate-in fade-in slide-in-from-top-1">
+                             <input className="text-[9px] p-1.5 border border-slate-200 rounded-md outline-none focus:border-indigo-400" placeholder="عنوان لینک..." value={newLinkLabel} onChange={(e) => setNewLinkLabel(e.target.value)} />
+                             <div className="flex gap-1">
+                                <input className="flex-1 text-[9px] p-1.5 border border-slate-200 rounded-md outline-none focus:border-indigo-400" placeholder="URL..." value={newLinkUrl} onChange={(e) => setNewLinkUrl(e.target.value)} />
+                                <button onClick={handleAddLink} className="p-1.5 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-all"><Plus size={12}/></button>
+                             </div>
+                          </div>
+                       )}
+                    </div>
+                 </div>
+              </div>
+
+              <div className="flex flex-col border border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm">
+                <div className="flex bg-slate-50 border-b border-slate-200">
+                   <button 
+                     onClick={() => setActiveTab('docs')}
+                     className={`flex-1 flex items-center justify-center gap-2 py-3 text-[11px] font-black transition-all relative ${activeTab === 'docs' ? 'bg-white text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+                   >
+                     <FileText size={16} /> مستندات و توضیحات
+                     {activeTab === 'docs' && <div className="absolute bottom-[-1px] left-0 right-0 h-0.5 bg-indigo-600" />}
+                   </button>
+                   <button 
+                     onClick={() => setActiveTab('visuals')}
+                     className={`flex-1 flex items-center justify-center gap-2 py-3 text-[11px] font-black transition-all relative ${activeTab === 'visuals' ? 'bg-white text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+                   >
+                     <ImageIcon size={16} /> طرح‌های بصری و تصاویر
+                     {activeTab === 'visuals' && <div className="absolute bottom-[-1px] left-0 right-0 h-0.5 bg-indigo-600" />}
+                   </button>
+                </div>
+
+                <div className="p-4 animate-in fade-in duration-300">
+                   {activeTab === 'docs' ? (
+                      <textarea 
+                        className="w-full h-[220px] p-4 bg-slate-50/20 border-none rounded-lg text-[11px] leading-relaxed outline-none shadow-inner resize-none focus:bg-white transition-all"
+                        placeholder="توضیحات و مستندات مربوط به این ایده را اینجا وارد کنید..."
+                        value={idea.description || ''}
+                        onChange={(e) => onUpdate({...idea, description: e.target.value})}
+                      />
+                   ) : (
+                      <div className="flex flex-col gap-3 h-[220px]">
+                         <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">گالری طرح‌ها</span>
+                            <label className="cursor-pointer bg-indigo-50 text-indigo-600 px-3 py-1 rounded-md text-[9px] font-black hover:bg-indigo-100 transition-colors border border-indigo-100">
+                               + افزودن تصویر
+                               <input type="file" className="hidden" accept="image/*" multiple onChange={handleImageUpload} />
+                            </label>
+                         </div>
+                         
+                         <div className="flex-1 border-2 border-dashed border-slate-200 rounded-lg bg-slate-50/30 overflow-y-auto p-4 custom-scrollbar">
+                            {imagesToShow.length > 0 ? (
+                              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                                 {imagesToShow.map((img, idx) => (
+                                    <div key={idx} className="relative group aspect-video rounded-lg overflow-hidden shadow-sm border border-slate-200 bg-white">
+                                       <img src={img} alt={`Concept ${idx}`} className="w-full h-full object-cover" />
+                                       <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                          <button onClick={() => { const win = window.open(""); win.document.write("<img src='" + img + "' style='max-width:100%'>"); }} className="p-1.5 bg-white text-slate-800 rounded-lg shadow-xl hover:scale-110 transition-transform"><Maximize2 size={12}/></button>
+                                          <button onClick={() => removeImage(idx)} className="p-1.5 bg-red-500 text-white rounded-lg shadow-xl hover:scale-110 transition-transform"><Trash2 size={12}/></button>
+                                       </div>
+                                    </div>
+                                 ))}
+                              </div>
+                            ) : (
+                              <div className="h-full flex flex-col items-center justify-center text-slate-300 gap-2 opacity-60">
+                                 <ImageIcon size={32} strokeWidth={1} />
+                                 <span className="text-[10px] font-bold">هنوز تصویری برای این ایده بارگذاری نشده است</span>
+                              </div>
+                            )}
+                         </div>
+                      </div>
+                   )}
+                </div>
+              </div>
+            </div>
+          );
+        };
+
+        const ReportsView = ({ ideas, settings, langView, workspaces, onUpdateIdea, onOpenIdea }) => {
+          const [subView, setSubView] = useState('calendar');
+          const [selectedWSIds, setSelectedWSIds] = useState(new Set(workspaces.map(w => w.id)));
+          const [currentMonth, setCurrentMonth] = useState(new Date());
+          const [expandedInGantt, setExpandedInGantt] = useState(new Set());
+          
+          const [timeScale, setTimeScale] = useState('daily');
+          const ganttScrollRef = useRef(null);
+          const [isDraggingGantt, setIsDraggingGantt] = useState(false);
+          const [dragStartX, setDragStartX] = useState(0);
+          const [dragScrollLeft, setDragScrollLeft] = useState(0);
+
+          const filteredIdeas = useMemo(() => {
+            return ideas.filter(i => selectedWSIds.has(i.workspaceId) || (!i.workspaceId && selectedWSIds.has(workspaces[0]?.id)));
+          }, [ideas, selectedWSIds, workspaces]);
+
+          const toggleWS = (id) => {
+             const next = new Set(selectedWSIds);
+             if (next.has(id)) next.delete(id); else next.add(id);
+             setSelectedWSIds(next);
+          };
+
+          const calendarGrid = useMemo(() => {
+            const year = currentMonth.getFullYear();
+            const month = currentMonth.getMonth();
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month + 1, 0);
+            const totalDays = lastDay.getDate();
+            const offset = firstDay.getDay(); 
+            
+            const grid = [];
+            for (let i = 0; i < offset; i++) grid.push(null);
+            for (let i = 1; i <= totalDays; i++) grid.push(new Date(year, month, i));
+            return grid;
+          }, [currentMonth]);
+
+          const getIdeasForDate = (date) => {
+            if (!date) return { starts: [], ends: [], ongoingCount: 0 };
+            const dateStr = formatDateToISO(date);
+            const starts = filteredIdeas.filter(i => i.startDate === dateStr);
+            const ends = filteredIdeas.filter(i => i.endDate === dateStr);
+            const ongoingCount = filteredIdeas.filter(i => {
+                if(!i.startDate || !i.endDate) return false;
+                return i.startDate <= dateStr && i.endDate >= dateStr;
+            }).length;
+            return { starts, ends, ongoingCount };
+          };
+
+          const handlePrevMonth = () => {
+              const next = new Date(currentMonth);
+              next.setMonth(next.getMonth() - 1);
+              setCurrentMonth(next);
+          };
+          const handleNextMonth = () => {
+              const next = new Date(currentMonth);
+              next.setMonth(next.getMonth() + 1);
+              setCurrentMonth(next);
+          };
+
+          const handleDropOnDate = async (e, date) => {
+            e.preventDefault();
+            const ideaId = e.dataTransfer.getData("id");
+            if (!ideaId || !date) return;
+            const dateStr = formatDateToISO(date);
+            const idea = ideas.find(i => i.id === ideaId);
+            if (!idea) return;
+            let updates = { startDate: dateStr };
+            if (idea.duration) {
+               const d = parseSafeDate(dateStr);
+               d.setDate(d.getDate() + (parseInt(idea.duration) - 1));
+               updates.endDate = formatDateToISO(d);
+            }
+            onUpdateIdea({ ...idea, ...updates });
+          };
+
+          const buildGanttTree = useCallback((parentId = null) => {
+             return filteredIdeas
+                .filter(i => i.parentId === parentId)
+                .map(i => ({ ...i, children: buildGanttTree(i.id) }));
+          }, [filteredIdeas]);
+
+          const ganttData = useMemo(() => buildGanttTree(null), [buildGanttTree]);
+
+          const flatGanttList = useMemo(() => {
+              const list = [];
+              const walk = (nodes, level = 0) => {
+                  nodes.forEach(node => {
+                      list.push({ ...node, level });
+                      if (expandedInGantt.has(node.id)) walk(node.children, level + 1);
+                  });
+              };
+              walk(ganttData);
+              return list;
+          }, [ganttData, expandedInGantt]);
+
+          const ganttRange = useMemo(() => {
+              const dates = filteredIdeas.flatMap(i => {
+                  const effective = getEffectiveDates(i, ideas);
+                  return [effective.start, effective.end];
+              }).filter(Boolean);
+              
+              if (dates.length === 0) {
+                  const s = new Date();
+                  s.setHours(0,0,0,0);
+                  const e = new Date(s);
+                  e.setDate(e.getDate() + 30);
+                  return { start: s, end: e };
+              }
+              
+              const minTimestamp = Math.min(...dates.map(d => d.getTime()));
+              const maxTimestamp = Math.max(...dates.map(d => d.getTime()));
+              
+              let s = new Date(minTimestamp);
+              let e = new Date(maxTimestamp);
+
+              if (timeScale === 'daily') {
+                  s.setDate(s.getDate() - 5);
+                  e.setDate(e.getDate() + 20);
+              } else if (timeScale === 'weekly') {
+                  s.setDate(s.getDate() - 14);
+                  e.setDate(e.getDate() + 60);
+              } else {
+                  s.setDate(1);
+                  s.setMonth(s.getMonth() - 1);
+                  e.setMonth(e.getMonth() + 6);
+              }
+              
+              return { 
+                start: new Date(s.getFullYear(), s.getMonth(), s.getDate(), 0, 0, 0, 0), 
+                end: new Date(e.getFullYear(), e.getMonth(), e.getDate(), 0, 0, 0, 0) 
+              };
+          }, [filteredIdeas, ideas, timeScale]);
+
+          const ganttIntervals = useMemo(() => {
+              const res = [];
+              if (!ganttRange.start) return res;
+              let curr = new Date(ganttRange.start);
+              
+              while (curr <= ganttRange.end) {
+                  const date = new Date(curr);
+                  let label = "";
+                  let subLabel = "";
+
+                  if (timeScale === 'daily') {
+                      label = date.getDate().toString();
+                      subLabel = date.toLocaleDateString('en-US', { weekday: 'short' });
+                      res.push({ date, label, subLabel });
+                      curr.setDate(curr.getDate() + 1);
+                  } else if (timeScale === 'weekly') {
+                      label = "Week " + Math.ceil(date.getDate() / 7);
+                      subLabel = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                      res.push({ date, label, subLabel });
+                      curr.setDate(curr.getDate() + 7);
+                  } else {
+                      label = date.toLocaleDateString('en-US', { month: 'long' });
+                      subLabel = date.getFullYear().toString();
+                      res.push({ date, label, subLabel });
+                      curr.setMonth(curr.getMonth() + 1);
+                  }
+              }
+              return res;
+          }, [ganttRange, timeScale]);
+
+          const UNIT_WIDTH = timeScale === 'daily' ? 40 : timeScale === 'weekly' ? 120 : 250;
+
+          const getGanttPos = (date) => {
+              if (!date || !ganttRange.start) return 0;
+              const start = ganttRange.start.getTime();
+              const target = date.getTime();
+              
+              if (timeScale === 'daily') {
+                  const diffDays = (target - start) / (1000 * 60 * 60 * 24);
+                  return diffDays * UNIT_WIDTH;
+              } else if (timeScale === 'weekly') {
+                  const diffWeeks = (target - start) / (1000 * 60 * 60 * 24 * 7);
+                  return diffWeeks * UNIT_WIDTH;
+              } else {
+                  const startYear = ganttRange.start.getFullYear();
+                  const startMonth = ganttRange.start.getMonth();
+                  const targetYear = date.getFullYear();
+                  const targetMonth = date.getMonth();
+                  const diffMonths = (targetYear - startYear) * 12 + (targetMonth - startMonth);
+                  
+                  const daysInMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+                  const fraction = date.getDate() / daysInMonth;
+                  return (diffMonths + fraction) * UNIT_WIDTH;
+              }
+          };
+
+          const handleGanttInteraction = (e, idea, type) => {
+              const rect = ganttScrollRef.current.querySelector('.gantt-grid-inner').getBoundingClientRect();
+              const offsetX = (e.clientX - rect.left) + ganttScrollRef.current.scrollLeft;
+              
+              let newDate = new Date(ganttRange.start);
+              if (timeScale === 'daily') {
+                  newDate.setDate(newDate.getDate() + Math.round(offsetX / UNIT_WIDTH));
+              } else if (timeScale === 'weekly') {
+                  newDate.setDate(newDate.getDate() + Math.round((offsetX / UNIT_WIDTH) * 7));
+              } else {
+                  const months = Math.floor(offsetX / UNIT_WIDTH);
+                  const fraction = (offsetX % UNIT_WIDTH) / UNIT_WIDTH;
+                  newDate.setMonth(newDate.getMonth() + months);
+                  const daysInMonth = new Date(newDate.getFullYear(), newDate.getMonth() + 1, 0).getDate();
+                  newDate.setDate(Math.max(1, Math.round(fraction * daysInMonth)));
+              }
+
+              const newDateStr = formatDateToISO(newDate);
+
+              if (type === 'move') {
+                  let updates = { startDate: newDateStr };
+                  if (idea.duration) {
+                      const end = new Date(newDate);
+                      end.setDate(end.getDate() + (parseInt(idea.duration) - 1));
+                      updates.endDate = formatDateToISO(end);
+                  }
+                  onUpdateIdea({ ...idea, ...updates });
+              } else if (type === 'resize') {
+                  const start = parseSafeDate(idea.startDate);
+                  const diff = getDaysDifference(newDate, start);
+                  onUpdateIdea({ ...idea, endDate: newDateStr, duration: Math.max(1, diff + 1).toString() });
+              }
+          };
+
+          const handleMouseDown = (e) => {
+              if (e.target.closest('.gantt-bar')) return;
+              setIsDraggingGantt(true);
+              setDragStartX(e.pageX - ganttScrollRef.current.offsetLeft);
+              setDragScrollLeft(ganttScrollRef.current.scrollLeft);
+          };
+
+          const handleMouseLeaveOrUp = () => setIsDraggingGantt(false);
+          const handleMouseMove = (e) => {
+              if (!isDraggingGantt) return;
+              e.preventDefault();
+              const x = e.pageX - ganttScrollRef.current.offsetLeft;
+              const walk = (x - dragStartX) * 1.5;
+              ganttScrollRef.current.scrollLeft = dragScrollLeft - walk;
+          };
+
+          const calendarDayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+          return (
+            <div className="flex flex-col h-full bg-slate-50/30 overflow-hidden w-full">
+               <div className="bg-white border-b border-slate-200 px-6 py-4 flex flex-wrap items-center justify-between gap-4 z-10 shadow-sm w-full">
+                  <div className="flex items-center gap-4">
+                     <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
+                        <button onClick={() => setSubView('calendar')} className={`px-4 py-1.5 rounded-lg text-[11px] font-black transition-all flex items-center gap-2 ${subView === 'calendar' ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-400'}`}>
+                           <CalendarDays size={14} /> تقویم اجرایی
+                        </button>
+                        <button onClick={() => setSubView('gantt')} className={`px-4 py-1.5 rounded-lg text-[11px] font-black transition-all flex items-center gap-2 ${subView === 'gantt' ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-400'}`}>
+                           <BarChart2 size={14} /> گانت چارت
+                        </button>
+                     </div>
+
+                     {subView === 'gantt' && (
+                        <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-lg border border-slate-200">
+                           <span className="text-[10px] font-black text-slate-400 px-2 uppercase"><ZoomIn size={12}/></span>
+                           {['daily', 'weekly', 'monthly'].map(scale => (
+                              <button 
+                                 key={scale}
+                                 onClick={() => setTimeScale(scale)}
+                                 className={`px-3 py-1 rounded-lg text-[9px] font-black transition-all ${timeScale === scale ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:bg-white'}`}
+                              >
+                                 {scale === 'daily' ? 'روزانه' : scale === 'weekly' ? 'هفتگی' : 'ماهانه'}
+                              </button>
+                           ))}
+                        </div>
+                     )}
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                     <span className="text-[10px] font-black text-slate-400 uppercase">فیلتر فضاها:</span>
+                     <div className="flex flex-wrap gap-1">
+                        {workspaces.map(ws => {
+                           const active = selectedWSIds.has(ws.id);
+                           return (
+                              <button 
+                                 key={ws.id} 
+                                 onClick={() => toggleWS(ws.id)}
+                                 className={`px-3 py-1 rounded-lg text-[9px] font-black transition-all border ${active ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-400 border-slate-200 hover:border-indigo-300'}`}
+                              >
+                                 {langView === 'fa' ? ws.title : ws.titleEn}
+                              </button>
+                           );
+                        })}
+                     </div>
+                  </div>
+               </div>
+
+               <div className="flex-1 overflow-auto p-6 custom-scrollbar w-full">
+                  {subView === 'calendar' ? (
+                     <div className="bg-white rounded-lg border border-slate-200 shadow-xl overflow-hidden flex flex-col h-full min-h-[700px] w-full">
+                        <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 w-full">
+                           <div className="flex items-center gap-4">
+                              <h3 className="text-lg font-black text-slate-800">
+                                 {currentMonth.toLocaleString('en-US', { month: 'long', year: 'numeric' })}
+                              </h3>
+                              <div className="flex gap-1">
+                                 <IconButton icon={ChevronLeft} onClick={handlePrevMonth} className="bg-white border" />
+                                 <IconButton icon={ChevronRight} onClick={handleNextMonth} className="bg-white border" />
+                              </div>
+                           </div>
+                           <div className="flex items-center gap-4 text-[10px] font-bold text-slate-400">
+                              <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-emerald-500" /> شروع ایده</div>
+                              <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-rose-500" /> پایان ایده</div>
+                           </div>
+                        </div>
+
+                        <div className="flex-1 flex flex-col w-full h-full overflow-hidden">
+                           <div className="grid grid-cols-7 w-full border-b border-slate-100 bg-slate-50/30">
+                              {calendarDayNames.map(d => (
+                                 <div key={d} className="py-2 text-center text-[10px] font-black text-slate-400 uppercase border-l border-slate-100">{d}</div>
+                              ))}
+                           </div>
+                           <div className="flex-1 grid grid-cols-7 grid-rows-6 w-full">
+                              {calendarGrid.map((date, idx) => {
+                                 const { starts, ends, ongoingCount } = getIdeasForDate(date);
+                                 const isToday = date && formatDateToISO(date) === formatDateToISO(new Date());
+                                 return (
+                                    <div 
+                                       key={idx} 
+                                       className={`min-h-0 p-2 border-b border-l border-slate-100 transition-colors flex flex-col gap-1 overflow-hidden relative ${date ? 'bg-white' : 'bg-slate-50/20'} ${isToday ? 'bg-indigo-50/30' : ''}`}
+                                       onDragOver={e => e.preventDefault()}
+                                       onDrop={e => handleDropOnDate(e, date)}
+                                    >
+                                       {date && (
+                                          <>
+                                             <div className="flex justify-between items-start mb-1">
+                                                <span className={`text-[11px] font-black w-6 h-6 flex items-center justify-center rounded-lg ${isToday ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}>
+                                                   {date.getDate()}
+                                                </span>
+                                                {ongoingCount > 0 && (
+                                                   <div className="text-[9px] font-black px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 shadow-sm">
+                                                      {ongoingCount} ایده
+                                                   </div>
+                                                )}
+                                             </div>
+                                             <div className="flex-1 overflow-y-auto space-y-1 custom-scrollbar pr-0.5">
+                                                {starts.map(i => (
+                                                   <div key={i.id} onClick={() => onOpenIdea(i)} className="text-[9px] font-bold p-1 rounded-md bg-emerald-50 border border-emerald-100 text-emerald-700 truncate cursor-pointer hover:shadow-md transition-all flex items-center gap-1">
+                                                      <div className="w-1 h-1 rounded-full bg-emerald-500 shrink-0" />
+                                                      {langView === 'fa' ? i.title : i.titleEn}
+                                                   </div>
+                                                ))}
+                                                {ends.map(i => (
+                                                   <div key={i.id} onClick={() => onOpenIdea(i)} className="text-[9px] font-bold p-1 rounded-md bg-rose-50 border border-rose-100 text-rose-700 truncate cursor-pointer hover:shadow-md transition-all flex items-center gap-1">
+                                                      <div className="w-1 h-1 rounded-full bg-rose-500 shrink-0" />
+                                                      {langView === 'fa' ? i.title : i.titleEn}
+                                                   </div>
+                                                ))}
+                                             </div>
+                                          </>
+                                       )}
+                                    </div>
+                                 );
+                              })}
+                           </div>
+                        </div>
+                     </div>
+                  ) : (
+                     <div className="bg-white rounded-lg border border-slate-200 shadow-xl overflow-hidden flex flex-col h-[700px] w-full">
+                         <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                            <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
+                                <BarChart2 size={18} className="text-indigo-600" /> نمای گانت (Gregorian)
+                            </h3>
+                         </div>
+                         <div className="flex-1 flex overflow-hidden w-full">
+                            <div className="w-72 bg-white border-l border-slate-200 flex flex-col z-20 shadow-lg shrink-0">
+                               <div className="h-16 border-b border-slate-100 flex items-center px-4 bg-slate-50/30 text-[10px] font-black text-slate-400 uppercase tracking-widest">لیست ایده‌ها</div>
+                               <div className="flex-1 overflow-y-auto custom-scrollbar">
+                                  {flatGanttList.map(node => (
+                                     <div 
+                                        key={node.id} 
+                                        className={`h-10 flex items-center gap-2 px-3 border-b border-slate-50 transition-colors hover:bg-slate-50 cursor-pointer ${node.level > 0 ? 'bg-slate-50/10' : ''}`}
+                                        style={{ [langView === 'fa' ? 'paddingRight' : 'paddingLeft']: `${node.level * 16 + 12}px` }}
+                                        onClick={() => onOpenIdea(node)}
+                                     >
+                                        <button 
+                                           onClick={(e) => { 
+                                               e.stopPropagation(); 
+                                               setExpandedInGantt(prev => {
+                                                   const next = new Set(prev); 
+                                                   if(next.has(node.id)) next.delete(node.id); 
+                                                   else next.add(node.id); 
+                                                   return next;
+                                               }); 
+                                           }}
+                                           className={`p-0.5 rounded transition-transform ${expandedInGantt.has(node.id) ? 'rotate-0' : '-rotate-90'}`}
+                                        >
+                                           {node.children?.length > 0 ? <ChevronDown size={12} className="text-slate-400" /> : <div className="w-3 h-3" />}
+                                        </button>
+                                        <span className="text-[10px] font-bold text-slate-700 truncate">{langView === 'fa' ? node.title : node.titleEn}</span>
+                                     </div>
+                                  ))}
+                               </div>
+                            </div>
+                            <div 
+                               ref={ganttScrollRef}
+                               onMouseDown={handleMouseDown}
+                               onMouseLeave={handleMouseLeaveOrUp}
+                               onMouseUp={handleMouseLeaveOrUp}
+                               onMouseMove={handleMouseMove}
+                               className="flex-1 overflow-auto custom-scrollbar relative bg-white gantt-container"
+                            >
+                               <div className="sticky top-0 h-16 bg-slate-50 border-b border-slate-200 flex z-30 shadow-sm" style={{ width: ganttIntervals.length * UNIT_WIDTH }}>
+                                  {ganttIntervals.map((it, i) => {
+                                     const isToday = timeScale === 'daily' && formatDateToISO(it.date) === formatDateToISO(new Date());
+                                     return (
+                                        <div key={i} className={`shrink-0 h-full border-l border-slate-200/50 flex flex-col items-center justify-center relative ${isToday ? 'bg-indigo-50' : ''}`} style={{ width: UNIT_WIDTH }}>
+                                           <span className="text-[10px] font-black text-indigo-600 uppercase mb-0.5">{it.label}</span>
+                                           <span className="text-[9px] font-bold text-slate-400">{it.subLabel}</span>
+                                        </div>
+                                     );
+                                  })}
+                               </div>
+                               <div className="relative gantt-grid-inner" style={{ width: ganttIntervals.length * UNIT_WIDTH, backgroundImage: `linear-gradient(to right, #e2e8f0 1px, transparent 1px)`, backgroundSize: `${UNIT_WIDTH}px 100%` }}>
+                                  {flatGanttList.map(node => {
+                                     const effective = getEffectiveDates(node, ideas);
+                                     const startPos = getGanttPos(effective.start);
+                                     
+                                     let width = 0;
+                                     if (effective.start && effective.end) {
+                                         const endPos = getGanttPos(effective.end);
+                                         width = endPos - startPos + (timeScale === 'daily' ? UNIT_WIDTH : 0);
+                                         if (timeScale !== 'daily' && width < 10) width = 10;
+                                     }
+
+                                     const colorData = COLOR_OPTIONS.find(c => c.name === node.color) || COLOR_OPTIONS[0];
+                                     const barBgClass = node.color === 'Default' ? 'bg-slate-200 border-slate-300 text-slate-600' : `${colorData.bg} ${colorData.border} ${colorData.text}`;
+                                     const isParent = ideas.some(i => i.parentId === node.id);
+                                     
+                                     return (
+                                        <div key={node.id} className="h-10 border-b border-slate-100 flex items-center relative group">
+                                           {effective.start && effective.end ? (
+                                              isParent ? (
+                                                  <div 
+                                                     className="absolute h-full flex items-center z-10"
+                                                     style={{ left: startPos, width }}
+                                                     onClick={() => onOpenIdea(node)}
+                                                  >
+                                                     <div className="parent-bar-shape w-full">
+                                                        <div className="parent-bar-endpoint left-0" />
+                                                        <div className="parent-bar-endpoint right-0" />
+                                                     </div>
+                                                  </div>
+                                              ) : (
+                                                  <div 
+                                                     className={`gantt-bar absolute h-6 rounded shadow-sm border flex items-center transition-all cursor-move z-10 group-hover:shadow-indigo-100 group-hover:z-20 ${barBgClass}`}
+                                                     style={{ left: startPos, width: Math.max(width, 20) }}
+                                                     draggable
+                                                     onDragEnd={(e) => handleGanttInteraction(e, node, 'move')}
+                                                     onClick={(e) => { e.stopPropagation(); onOpenIdea(node); }}
+                                                     title={`${formatDateToISO(effective.start)} - ${formatDateToISO(effective.end)}`}
+                                                  >
+                                                     <div 
+                                                        className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-black/10 rounded-l"
+                                                        onDragEnd={(e) => { e.stopPropagation(); handleGanttInteraction(e, node, 'resize'); }}
+                                                     />
+                                                     <span className="px-2 text-[8px] font-black truncate w-full text-center pointer-events-none">
+                                                        {langView === 'fa' ? node.title : node.titleEn}
+                                                     </span>
+                                                  </div>
+                                              )
+                                           ) : (
+                                              <div className="absolute left-4 text-[8px] font-bold text-slate-300 italic">No Timing</div>
+                                           )}
+                                        </div>
+                                     );
+                                  })}
+                                  <div 
+                                     className="absolute top-0 bottom-0 w-px bg-indigo-500 z-10 pointer-events-none shadow-[0_0_10px_rgba(99,102,241,0.5)]"
+                                     style={{ left: getGanttPos(new Date()) }}
+                                  >
+                                     <div className="w-2 h-2 bg-indigo-500 rounded-full -ml-1 mt-[-1px]" />
+                                  </div>
+                               </div>
+                            </div>
+                         </div>
+                     </div>
+                  )}
+               </div>
+            </div>
+          );
+        };
+
+        const SettingsModal = ({ isOpen, onClose, settings, onSaveSettings }) => {
+          const [localSettings, setLocalSettings] = useState(settings || DEFAULT_SETTINGS);
+          useEffect(() => { if(settings) setLocalSettings(settings); }, [settings]);
+          if (!isOpen) return null;
+          const handleStatusChangeLocal = (index, field, value) => {
+            const newStatuses = [...localSettings.statuses];
+            newStatuses[index] = { ...newStatuses[index], [field]: value };
+            setLocalSettings({ ...localSettings, statuses: newStatuses });
+          };
+          const addStatus = () => {
+            const newStatus = { id: `status_${Date.now()}`, title: 'جدید', titleEn: 'New', color: 'gray', isDefault: false };
+            setLocalSettings({ ...localSettings, statuses: [...localSettings.statuses, newStatus] });
+          };
+          const removeStatus = (index) => {
+            const newStatuses = localSettings.statuses.filter((_, i) => i !== index);
+            setLocalSettings({ ...localSettings, statuses: newStatuses });
+          };
+          const setDefaultStatus = (id) => {
+            const newStatuses = localSettings.statuses.map(s => ({ ...s, isDefault: s.id === id }));
+            setLocalSettings({ ...localSettings, statuses: newStatuses });
+          };
+          return (
+            <div className="fixed inset-0 z-[200] flex items-center justify-center p-6">
+               <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-in fade-in" onClick={onClose}></div>
+               <div className="relative w-full max-w-3xl bg-white rounded-lg shadow-2xl flex flex-col max-h-[85vh] animate-in zoom-in-95">
+                  <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                     <h2 className="text-lg font-black text-slate-800 flex items-center gap-2"><Sliders className="text-indigo-600" /> تنظیمات پروژه</h2>
+                     <IconButton icon={X} onClick={onClose} size={24} />
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                     <div className="mb-6">
+                        <h3 className="text-sm font-black text-slate-700 mb-4 border-b border-slate-100 pb-2">وضعیت‌های ایده</h3>
+                        <div className="space-y-3">
+                           {localSettings.statuses.map((status, index) => (
+                              <div key={status.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200 group">
+                                 <div className="relative">
+                                    <div className={`w-8 h-8 rounded-full ${STATUS_COLORS.find(c => c.id === status.color)?.bg} flex items-center justify-center border border-black/5`}>
+                                       <div className={`w-3 h-3 rounded-full ${STATUS_COLORS.find(c => c.id === status.color)?.text.replace('text-', 'bg-')}`} />
+                                    </div>
+                                    <select className="absolute inset-0 opacity-0 cursor-pointer" value={status.color} onChange={(e) => handleStatusChangeLocal(index, 'color', e.target.value)}>
+                                       {STATUS_COLORS.map(c => <option key={c.id} value={c.id}>{c.id}</option>)}
+                                    </select>
+                                 </div>
+                                 <div className="flex-1 grid grid-cols-2 gap-3">
+                                    <input value={status.title} onChange={(e) => handleStatusChangeLocal(index, 'title', e.target.value)} className="p-2 text-xs font-bold rounded-lg border border-slate-200 outline-none" placeholder="عنوان فارسی" />
+                                    <input value={status.titleEn} onChange={(e) => handleStatusChangeLocal(index, 'titleEn', e.target.value)} dir="ltr" className="p-2 text-xs font-bold rounded-lg border border-slate-200 outline-none" placeholder="English Title" />
+                                 </div>
+                                 <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
+                                    <button onClick={() => setDefaultStatus(status.id)} className={`p-2 rounded-lg ${status.isDefault ? 'bg-emerald-100 text-emerald-700' : 'text-slate-300 hover:text-emerald-600'}`}><CheckCircle size={18} /></button>
+                                    <button onClick={() => removeStatus(index)} className="p-2 text-slate-300 hover:text-red-500 rounded-lg" disabled={localSettings.statuses.length <= 1}><Trash2 size={18} /></button>
+                                 </div>
+                              </div>
+                           ))}
+                        </div>
+                        <button onClick={addStatus} className="mt-4 flex items-center gap-2 text-xs font-black text-indigo-600 hover:bg-indigo-50 px-4 py-2 rounded-lg transition-all border border-transparent hover:border-indigo-100"><Plus size={16} /> افزودن وضعیت جدید</button>
+                     </div>
+                  </div>
+                  <div className="p-6 border-t border-slate-100 bg-slate-50 rounded-b-lg flex justify-end gap-3">
+                     <Button variant="secondary" onClick={onClose}>انصراف</Button>
+                     <Button onClick={() => onSaveSettings(localSettings)} icon={Save}>ذخیره تغییرات</Button>
+                  </div>
+               </div>
+            </div>
+          );
+        };
+
+        const WorkspaceRail = ({ workspaces, activeId, onSelect, onAdd, onEdit, langView }) => {
+          const [tooltip, setTooltip] = useState({ show: false, id: null, top: 0, title: '' });
+          return (
+            <div className="w-20 bg-slate-100 border-l border-slate-200 flex flex-col items-center py-6 gap-4 z-40 shadow-xl shrink-0 relative">
+              <div className="mb-4">
+                 <div className="bg-white border border-slate-200 p-2.5 rounded-lg text-indigo-600 shadow-lg shadow-indigo-100"><Box size={24} /></div>
+              </div>
+              <div className="flex-1 w-full flex flex-col items-center gap-3 overflow-y-auto custom-scrollbar px-2">
+                {workspaces.map((ws, index) => {
+                   const isActive = activeId === ws.id;
+                   const title = langView === 'fa' ? ws.title : ws.titleEn;
+                   const initial = (ws.titleEn || ws.title || "?").charAt(0).toUpperCase();
+                   const colorData = COLOR_OPTIONS.find(c => c.name === ws.color) || COLOR_OPTIONS[0];
+
+                   return (
+                     <div key={ws.id} className="relative group w-full flex justify-center">
+                        <button 
+                          onClick={() => onSelect(ws.id)} 
+                          onMouseEnter={(e) => { const rect = e.currentTarget.getBoundingClientRect(); setTooltip({ show: true, id: ws.id, top: rect.top + rect.height / 2, title: title }); }} 
+                          onMouseLeave={() => setTooltip({ ...tooltip, show: false })} 
+                          className={`w-12 h-12 rounded-lg flex items-center justify-center font-black text-lg transition-all shadow-sm relative active:scale-95 ${isActive ? 'bg-indigo-600 text-white ring-4 ring-indigo-200' : `${colorData.bg} ${colorData.text} border ${colorData.border}`}`}
+                        >
+                          {initial}
+                        </button>
+                        {isActive && <button onClick={(e) => { e.stopPropagation(); onEdit(ws); }} className="absolute -bottom-1 -right-1 bg-white border border-slate-200 text-slate-400 p-1 rounded-full shadow-sm hover:text-indigo-600 z-10"><Settings size={10} /></button>}
+                     </div>
+                   );
+                })}
+                <button onClick={onAdd} className="w-12 h-12 rounded-lg flex items-center justify-center border-2 border-dashed border-slate-300 text-slate-400 hover:text-indigo-600 mt-2"><Plus size={20} /></button>
+              </div>
+              {tooltip.show && (
+                <div className="fixed z-[9999] bg-slate-800 text-white text-xs font-bold py-1.5 px-3 rounded-lg shadow-xl whitespace-nowrap" style={{ top: tooltip.top, [langView === 'fa' ? 'right' : 'left']: '5.5rem', transform: 'translateY(-50%)' }}>
+                  {tooltip.title}
+                </div>
+              )}
+            </div>
+          );
+        };
+
+        function App() {
+          const [user, setUser] = useState(null);
+          const [ideas, setIdeas] = useState([]);
+          const [workspaces, setWorkspaces] = useState([]);
+          const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+          const [activeWorkspaceId, setActiveWorkspaceId] = useState(null);
+          const [loading, setLoading] = useState(true);
+          const [selectedIdea, setSelectedIdea] = useState(null);
+          const [isModalOpen, setIsModalOpen] = useState(false);
+          const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
+          const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+          const [editingWorkspace, setEditingWorkspace] = useState(null);
+          const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {} });
+          const [searchFilters, setSearchFilters] = useState({ 
+            text: '', 
+            priority: '', 
+            color: '', 
+            tag: '',
+            hasImage: false,
+            hasLink: false
+          });
+          const [showFilters, setShowFilters] = useState(false);
+          const filterModalRef = useRef(null);
+
+          const isFilterActive = useMemo(() => {
+             return searchFilters.priority !== '' || searchFilters.color !== '' || searchFilters.tag !== '' || searchFilters.hasImage || searchFilters.hasLink;
+          }, [searchFilters]);
+
+          const [expandedIds, setExpandedIds] = useState(new Set());
+          const [langView, setLangView] = useState('fa'); 
+          const [viewMode, setViewMode] = useState('board'); 
+
+          useEffect(() => {
+            const initAuth = async () => { try { await signInAnonymously(auth); } catch (e) {} };
+            initAuth();
+            const unsubscribeAuth = onAuthStateChanged(auth, setUser);
+            return () => unsubscribeAuth();
+          }, []);
+
+          useEffect(() => {
+             const handleClickOutside = (event) => {
+               if (filterModalRef.current && !filterModalRef.current.contains(event.target) && !event.target.closest('.filter-toggle-btn')) {
+                 setShowFilters(false);
+               }
+             };
+             if (showFilters) {
+               document.addEventListener("mousedown", handleClickOutside);
+             }
+             return () => document.removeEventListener("mousedown", handleClickOutside);
+          }, [showFilters]);
+
+          useEffect(() => {
+            if (!user) return;
+            const wsRef = collection(db, 'artifacts', FIXED_APP_ID, 'public', 'data', 'workspaces');
+            return onSnapshot(query(wsRef), async (snapshot) => {
+              let list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+              list.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+              setWorkspaces(list);
+              if (list.length === 0) {
+                 const defaultWs = { title: "فضای اصلی", titleEn: "Main Board", color: "Indigo", createdAt: Date.now() };
+                 const ref = await addDoc(wsRef, defaultWs);
+                 setActiveWorkspaceId(ref.id);
+              } else if (!activeWorkspaceId || !list.find(w => w.id === activeWorkspaceId)) {
+                setActiveWorkspaceId(list[0].id);
+              }
+            });
+          }, [user]);
+
+          useEffect(() => {
+            if (!user) return;
+            const ideasRef = collection(db, 'artifacts', FIXED_APP_ID, 'public', 'data', 'ideas');
+            return onSnapshot(query(ideasRef), (snapshot) => {
+              const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+              list.sort((a, b) => (a.priority || 0) - (b.priority || 0));
+              setIdeas(list);
+              setLoading(false);
+            });
+          }, [user]);
+
+          useEffect(() => {
+            if (!user) return;
+            const settingsRef = doc(db, 'artifacts', FIXED_APP_ID, 'public', 'data', 'settings', 'global');
+            return onSnapshot(settingsRef, (docSnap) => { if (docSnap.exists()) setSettings(docSnap.data()); });
+          }, [user]);
+
+          const currentIdeas = useMemo(() => {
+            if (!activeWorkspaceId) return [];
+            return ideas.filter(idea => idea.workspaceId === activeWorkspaceId || (!idea.workspaceId && workspaces[0]?.id === activeWorkspaceId));
+          }, [ideas, activeWorkspaceId, workspaces]);
+
+          const buildTreeData = useCallback((data, parentId = null) => {
+            return data.filter(item => item.parentId === parentId).map(item => ({ ...item, children: buildTreeData(data, item.id) }));
+          }, []);
+
+          const filteredTreeData = useMemo(() => {
+            const lowerSearch = searchFilters.text.toLowerCase();
+            const tree = buildTreeData(currentIdeas);
+            
+            const isFiltering = searchFilters.text || searchFilters.priority !== '' || searchFilters.color || searchFilters.tag || searchFilters.hasImage || searchFilters.hasLink;
+            if (!isFiltering) return tree;
+
+            const filterNodes = (nodes) => {
+              return nodes.reduce((acc, node) => {
+                const matchText = !lowerSearch || node.title?.toLowerCase().includes(lowerSearch) || node.titleEn?.toLowerCase().includes(lowerSearch);
+                const matchPriority = searchFilters.priority === '' || node.priority === parseInt(searchFilters.priority);
+                const matchColor = !searchFilters.color || node.color === searchFilters.color;
+                const matchTag = !searchFilters.tag || node.tags?.some(t => t.toLowerCase().includes(searchFilters.tag.toLowerCase()));
+                const matchImage = !searchFilters.hasImage || (node.images && node.images.length > 0) || !!node.imageUrl;
+                const matchLink = !searchFilters.hasLink || (node.links && node.links.length > 0);
+
+                const matchesAll = matchText && matchPriority && matchColor && matchTag && matchImage && matchLink;
+                
+                const children = filterNodes(node.children || []);
+                if (matchesAll || children.length > 0) {
+                   acc.push({ ...node, children });
+                }
+                return acc;
+              }, []);
+            };
+            return filterNodes(tree);
+          }, [currentIdeas, searchFilters, buildTreeData]);
+
+          const flatFilteredIdeas = useMemo(() => {
+             const flatten = (nodes) => {
+               let flat = [];
+               nodes.forEach(node => { flat.push(node); if(node.children?.length > 0) flat = flat.concat(flatten(node.children)); });
+               return flat;
+             };
+             return flatten(filteredTreeData);
+          }, [filteredTreeData]);
+
+          const handleUpdate = async (updatedIdea) => {
+            if (!user) return;
+            setSelectedIdea(updatedIdea);
+            await updateDoc(doc(db, 'artifacts', FIXED_APP_ID, 'public', 'data', 'ideas', updatedIdea.id), updatedIdea);
+          };
+
+          const addIdea = async (parentId = null) => {
+            if (!user || !activeWorkspaceId) return;
+            const newIdea = {
+              title: "ایده جدید", titleEn: "New Idea", parentId: parentId, workspaceId: activeWorkspaceId,
+              priority: 5, tags: [], links: [], color: 'Default', statusId: settings?.statuses?.find(s => s.isDefault)?.id || 'todo',
+              startDate: "", endDate: "", createdAt: Date.now(), images: []
+            };
+            const docRef = await addDoc(collection(db, 'artifacts', FIXED_APP_ID, 'public', 'data', 'ideas'), newIdea);
+            setSelectedIdea({ id: docRef.id, ...newIdea });
+            if (viewMode === 'board') setIsModalOpen(true);
+            if (parentId) setExpandedIds(prev => new Set(prev).add(parentId));
+          };
+
+          const requestDeleteIdea = (idOrObj) => {
+            const id = (typeof idOrObj === 'object' && idOrObj !== null) ? idOrObj.id : idOrObj;
+            setConfirmDialog({ isOpen: true, title: 'حذف ایده', message: 'آیا از حذف این ایده و تمام زیرمجموعه‌های آن اطمینان دارید؟', onConfirm: async () => {
+              const toDelete = new Set([id]);
+              const findChildren = (pid) => ideas.forEach(i => { if (i.parentId === pid) { toDelete.add(i.id); findChildren(i.id); } });
+              findChildren(id);
+              await Promise.all(Array.from(toDelete).map(delId => deleteDoc(doc(db, 'artifacts', FIXED_APP_ID, 'public', 'data', 'ideas', delId))));
+              if (selectedIdea && toDelete.has(selectedIdea.id)) { setSelectedIdea(null); setIsModalOpen(false); }
+            }});
+          };
+
+          const handlePriorityChange = async (idea, delta) => {
+            const newPriority = Math.max(0, (idea.priority || 0) + delta);
+            if (selectedIdea?.id === idea.id) setSelectedIdea({...idea, priority: newPriority});
+            await updateDoc(doc(db, 'artifacts', FIXED_APP_ID, 'public', 'data', 'ideas', idea.id), { priority: newPriority });
+          };
+
+          const handleStatusChange = async (idea, statusId) => {
+             if (selectedIdea?.id === idea.id) setSelectedIdea({ ...idea, statusId });
+             await updateDoc(doc(db, 'artifacts', FIXED_APP_ID, 'public', 'data', 'ideas', idea.id), { statusId });
+          };
+
+          const handleDragStart = (e, id, type = 'CARD') => { e.dataTransfer.setData("id", id); e.dataTransfer.setData("type", type); };
+          const handleDrop = async (e, targetId) => {
+            e.preventDefault(); e.stopPropagation();
+            const type = e.dataTransfer.getData("type");
+            const sourceId = e.dataTransfer.getData("id");
+            if (!user || !sourceId || sourceId === targetId) return;
+            if (type === 'CARD') {
+                await updateDoc(doc(db, 'artifacts', FIXED_APP_ID, 'public', 'data', 'ideas', sourceId), { parentId: targetId });
+                if (targetId) setExpandedIds(prev => new Set(prev).add(targetId));
+            }
+          };
+
+          const handleSaveWorkspace = async () => {
+            if (!user || !editingWorkspace) return;
+            const collectionRef = collection(db, 'artifacts', FIXED_APP_ID, 'public', 'data', 'workspaces');
+            try {
+              if (editingWorkspace.id) {
+                await updateDoc(doc(collectionRef, editingWorkspace.id), editingWorkspace);
+              } else {
+                const ref = await addDoc(collectionRef, { ...editingWorkspace, createdAt: Date.now() });
+                setActiveWorkspaceId(ref.id);
+              }
+              setIsWorkspaceModalOpen(false);
+              setEditingWorkspace(null);
+            } catch (error) {
+              console.error("Error saving workspace:", error);
+            }
+          };
+
+          if (loading) return <div className="h-screen w-full flex items-center justify-center bg-slate-50"><div className="animate-spin w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full"></div></div>;
+
+          return (
+            <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-sans" dir={langView === 'fa' ? 'rtl' : 'ltr'}>
+              <WorkspaceRail workspaces={workspaces} activeId={activeWorkspaceId} onSelect={setActiveWorkspaceId} onAdd={() => { setEditingWorkspace({ title: "", titleEn: "", color: "Indigo" }); setIsWorkspaceModalOpen(true); }} onEdit={(ws) => { setEditingWorkspace(ws); setIsWorkspaceModalOpen(true); }} langView={langView} />
+              <div className="flex-1 flex flex-col h-full overflow-hidden w-full">
+                <header className="bg-white border-b border-slate-200 flex flex-col px-6 z-30 shadow-sm relative w-full">
+                  <div className="h-14 flex items-center justify-between">
+                    <div className="flex items-center gap-6">
+                      <h1 className="text-sm font-black text-slate-800 uppercase">
+                         {workspaces.find(w => w.id === activeWorkspaceId) ? (langView === 'fa' ? workspaces.find(w => w.id === activeWorkspaceId).title : workspaces.find(w => w.id === activeWorkspaceId).titleEn) : 'Idea Hub'}
+                      </h1>
+                      <div className="flex items-center gap-2">
+                        <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-sm">
+                          <button onClick={() => setViewMode('tree')} className={`px-5 py-1.5 rounded-lg text-[11px] font-black transition-all ${viewMode === 'tree' ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-400'}`}><List size={14} /> درختی</button>
+                          <button onClick={() => setViewMode('board')} className={`px-5 py-1.5 rounded-lg text-[11px] font-black transition-all ${viewMode === 'board' ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-400'}`}><Trello size={14} /> بورد</button>
+                        </div>
+                        <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-sm">
+                          <button onClick={() => setViewMode('reports')} className={`px-5 py-1.5 rounded-lg text-[11px] font-black transition-all ${viewMode === 'reports' ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-400'}`}><BarChart2 size={14} /> گزارش‌ها</button>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {viewMode !== 'reports' && (
+                      <div className="flex items-center gap-4 flex-1 max-w-2xl mx-12 relative">
+                        <div className="relative w-full flex items-center group">
+                          <Search className={`absolute ${langView === 'fa' ? 'right-4' : 'left-4'} text-slate-400`} size={18} />
+                          <input 
+                            type="text" 
+                            placeholder="جستجو در ایده‌ها..." 
+                            className={`w-full ${langView === 'fa' ? 'pr-11 pl-12' : 'pl-11 pr-12'} py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:bg-white transition-all`} 
+                            value={searchFilters.text} 
+                            onChange={(e) => setSearchFilters({...searchFilters, text: e.target.value})} 
+                          />
+                          <button 
+                            onClick={() => setShowFilters(!showFilters)}
+                            className={`filter-toggle-btn absolute ${langView === 'fa' ? 'left-2' : 'right-2'} p-1.5 rounded-lg transition-all relative ${showFilters ? 'bg-indigo-600 text-white' : isFilterActive ? 'bg-indigo-50 text-indigo-600 ring-1 ring-indigo-200' : 'text-slate-400 hover:bg-slate-200'}`}
+                            title="فیلترهای پیشرفته"
+                          >
+                            <Filter size={16} />
+                            {isFilterActive && <span className="absolute -top-1 -right-1 w-2 h-2 bg-indigo-600 rounded-full border-2 border-white"></span>}
+                          </button>
+                        </div>
+                        
+                        {showFilters && (
+                          <div ref={filterModalRef} className={`absolute top-full mt-2 ${langView === 'fa' ? 'left-0' : 'right-0'} bg-white border border-slate-200 rounded-lg shadow-2xl p-6 z-[200] w-96 animate-in fade-in zoom-in-95`}>
+                             <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-xs font-black text-slate-800 uppercase flex items-center gap-2"><Sliders size={14} /> فیلترهای پیشرفته</h3>
+                                <button onClick={() => setSearchFilters({ text: searchFilters.text, priority: '', color: '', tag: '', hasImage: false, hasLink: false })} className="text-[10px] font-bold text-indigo-600 hover:underline">پاک کردن فیلترها</button>
+                             </div>
+                             
+                             <div className="space-y-4">
+                                <div className="grid grid-cols-2 gap-4">
+                                   <div>
+                                      <label className="text-[10px] font-black text-slate-400 mb-2 block uppercase tracking-wider">اولویت</label>
+                                      <input 
+                                         type="number"
+                                         className="w-full bg-slate-50 border border-slate-100 rounded-lg px-4 py-2 text-xs font-black outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500/10"
+                                         placeholder="عدد اولویت..."
+                                         value={searchFilters.priority}
+                                         onChange={e => setSearchFilters({...searchFilters, priority: e.target.value})}
+                                      />
+                                   </div>
+
+                                   <div>
+                                      <label className="text-[10px] font-black text-slate-400 mb-2 block uppercase tracking-wider">رنگ (Theme)</label>
+                                      <div className="flex gap-1.5 p-1 bg-slate-50 rounded-lg border border-slate-100">
+                                         {COLOR_OPTIONS.map(opt => (
+                                            <button 
+                                               key={opt.name} 
+                                               onClick={() => setSearchFilters(f => ({ ...f, color: f.color === opt.name ? '' : opt.name }))}
+                                               className={`w-6 h-6 rounded-full border transition-all hover:scale-110 ${opt.bg} ${searchFilters.color === opt.name ? 'ring-2 ring-indigo-500 ring-offset-2' : 'border-slate-200'}`}
+                                            />
+                                         ))}
+                                      </div>
+                                   </div>
+                                </div>
+
+                                <div>
+                                   <label className="text-[10px] font-black text-slate-400 mb-2 block uppercase tracking-wider">تگ</label>
+                                   <div className="relative">
+                                      <Tag size={12} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300" />
+                                      <input 
+                                         className="w-full bg-slate-50 border border-slate-100 rounded-lg pr-9 pl-4 py-2 text-xs font-bold outline-none focus:bg-white"
+                                         placeholder="نام تگ را وارد کنید..."
+                                         value={searchFilters.tag}
+                                         onChange={e => setSearchFilters({...searchFilters, tag: e.target.value})}
+                                      />
+                                   </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3 pt-2">
+                                   <button 
+                                      onClick={() => setSearchFilters(f => ({ ...f, hasImage: !f.hasImage }))}
+                                      className={`flex items-center justify-center gap-2 py-2 rounded-lg text-[10px] font-bold border transition-all ${searchFilters.hasImage ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-100 text-slate-400'}`}
+                                   >
+                                      <Image size={14} /> پیوست تصویر
+                                   </button>
+                                   <button 
+                                      onClick={() => setSearchFilters(f => ({ ...f, hasLink: !f.hasLink }))}
+                                      className={`flex items-center justify-center gap-2 py-2 rounded-lg text-[10px] font-bold border transition-all ${searchFilters.hasLink ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-100 text-slate-400'}`}
+                                   >
+                                      <Link size={14} /> پیوست لینک
+                                   </button>
+                                </div>
+                             </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2">
+                      <IconButton icon={Sliders} onClick={() => setIsSettingsModalOpen(true)} className="bg-slate-100 h-10 w-10" size={18} />
+                      <Button onClick={() => addIdea(null)} icon={Plus} className="h-10">ایده ریشه</Button>
+                      <button onClick={() => setLangView(langView === 'fa' ? 'en' : 'fa')} className="flex items-center gap-2 px-4 py-2 text-[11px] font-black text-indigo-600 bg-indigo-50 rounded-lg border border-indigo-100 h-10"><Globe size={16} /> {langView === 'fa' ? 'EN' : 'FA'}</button>
+                    </div>
+                  </div>
+                </header>
+                <div className="flex-1 flex overflow-hidden w-full">
+                  {viewMode === 'reports' ? (
+                     <ReportsView ideas={ideas} settings={settings} langView={langView} workspaces={workspaces} onUpdateIdea={handleUpdate} onOpenIdea={(i) => { setSelectedIdea(i); setIsModalOpen(true); }} />
+                  ) : (
+                    <>
+                      {viewMode === 'tree' && (
+                        <>
+                          <aside className="w-80 bg-white border-l border-r border-slate-200 flex flex-col h-full" onDragOver={e => e.preventDefault()} onDrop={e => handleDrop(e, null)}>
+                            <div className="p-4 border-b border-slate-100 flex items-center justify-between"><span className="text-[10px] font-black text-slate-400 uppercase">سلسله‌مراتب</span><IconButton icon={Layers} size={16} onClick={() => setExpandedIds(new Set())} /></div>
+                            <div className="flex-1 overflow-y-auto p-3 custom-scrollbar">
+                              {filteredTreeData.map(idea => (<SidebarItem key={idea.id} idea={idea} langView={langView} selectedId={selectedIdea?.id} onSelect={setSelectedIdea} onExpand={(id) => setExpandedIds(prev => {const next = new Set(prev); if(next.has(id)) next.delete(id); else next.add(id); return next;})} expandedIds={expandedIds} onAddChild={addIdea} onDragStart={handleDragStart} onDrop={handleDrop} onRequestDelete={requestDeleteIdea} />))}
+                            </div>
+                          </aside>
+                          <main className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-slate-50/30">
+                            {selectedIdea ? (
+                              <div className="bg-white border border-slate-200 rounded-lg shadow-2xl p-10 max-w-6xl mx-auto">
+                                <div className="flex items-center justify-between mb-8 border-b pb-6">
+                                  <h2 className="text-lg font-black text-slate-800">جزئیات ایده</h2>
+                                  <Button onClick={() => requestDeleteIdea(selectedIdea.id)} variant="danger" icon={Trash2}>حذف</Button>
+                                </div>
+                                <IdeaDetailsContent idea={selectedIdea} onUpdate={handleUpdate} onPriorityChange={handlePriorityChange} settings={settings} langView={langView} allIdeas={ideas} workspaces={workspaces} onRequestDelete={requestDeleteIdea} />
+                              </div>
+                            ) : (<div className="h-full flex flex-col items-center justify-center text-slate-300 gap-6 opacity-60"><List size={80} strokeWidth={0.5} /><h3 className="text-xl font-black">یک ایده را انتخاب کنید</h3></div>)}
+                          </main>
+                        </>
+                      )}
+                      {viewMode === 'board' && (
+                        <main className="flex-1 overflow-auto custom-scrollbar bg-slate-50/50">
+                          <div className="flex items-start gap-6 p-6 pb-20">
+                            {flatFilteredIdeas.filter(i => !i.parentId).map(root => (
+                              <div key={root.id} className="min-w-[320px] w-[320px] flex flex-col h-auto bg-slate-200/40 rounded-lg border border-slate-200/50 shadow-inner relative" onDragOver={e => e.preventDefault()} onDrop={e => handleDrop(e, root.id)}>
+                                <div className="p-4 border-b border-slate-200 bg-slate-100 flex items-center justify-between rounded-t-lg sticky top-0 z-20 shadow-md">
+                                  <h3 className="text-[13px] font-black text-slate-900 truncate flex items-center gap-2"><GripHorizontal size={14} className="text-slate-400" /> {langView === 'fa' ? root.title : root.titleEn}</h3>
+                                  <div className="flex gap-1.5 items-center">
+                                     <IconButton icon={Edit3} size={16} onClick={() => { setSelectedIdea(root); setIsModalOpen(true); }} className="bg-white/80 border" />
+                                     <IconButton icon={Plus} size={16} onClick={() => addIdea(root.id)} className="bg-indigo-600 text-white shadow-lg" />
+                                  </div>
+                                </div>
+                                <div className="p-3 space-y-2">
+                                  {flatFilteredIdeas.filter(i => i.parentId === root.id).map(card => (
+                                    <BoardCard key={card.id} idea={card} langView={langView} onOpen={(i) => { setSelectedIdea(i); setIsModalOpen(true); }} onStatusChange={handleStatusChange} settings={settings} allIdeas={flatFilteredIdeas} onDragStart={handleDragStart} onDrop={handleDrop} />
+                                  ))}
+                                  <button onClick={() => addIdea(root.id)} className="w-full py-4 border-2 border-dashed border-slate-300 rounded-lg text-slate-400 text-[11px] font-black hover:bg-white transition-all">+ افزودن ایده</button>
+                                </div>
+                              </div>
+                            ))}
+                            <button onClick={() => addIdea(null)} className="min-w-[220px] h-[100px] border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-400 hover:bg-white bg-slate-100/50 transition-all"><Plus size={32} /><span className="text-[12px] font-black mt-3">تم جدید</span></button>
+                          </div>
+                        </main>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {isModalOpen && selectedIdea && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+                  <div className="absolute inset-0 bg-slate-900/70 backdrop-blur-xl animate-in fade-in" onClick={() => setIsModalOpen(false)}></div>
+                  <div className="relative w-full max-w-7xl max-h-[96vh] bg-white rounded-lg shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 border border-white/20">
+                    <header className="p-6 border-b border-slate-100 flex items-center justify-between bg-white/80 backdrop-blur-xl">
+                      <div className="flex items-center gap-4"><div className="p-3 bg-indigo-600 text-white rounded-lg shadow-xl"><Edit3 size={24} /></div><h2 className="text-base font-black text-slate-800 uppercase">ویرایش ایده</h2></div>
+                      <IconButton icon={X} size={32} onClick={() => setIsModalOpen(false)} className="bg-slate-100 p-2" />
+                    </header>
+                    <div className="flex-1 overflow-y-auto p-10 custom-scrollbar bg-slate-50/20">
+                      <IdeaDetailsContent idea={selectedIdea} onUpdate={handleUpdate} onPriorityChange={handlePriorityChange} settings={settings} langView={langView} allIdeas={ideas} workspaces={workspaces} onRequestDelete={requestDeleteIdea} />
+                    </div>
+                    <footer className="p-6 border-t border-slate-100 bg-white flex justify-end gap-4"><Button onClick={() => setIsModalOpen(false)} variant="secondary" className="px-8">بستن</Button><Button onClick={() => setIsModalOpen(false)} icon={Save} className="px-14">ذخیره</Button></footer>
+                  </div>
+                </div>
+              )}
+
+              {isWorkspaceModalOpen && editingWorkspace && (
+                 <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+                   <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onClick={() => setIsWorkspaceModalOpen(false)}></div>
+                   <div className="relative bg-white rounded-xl p-8 w-full max-w-md shadow-2xl animate-in zoom-in-95">
+                     <h3 className="text-xl font-black mb-6 flex items-center gap-2 text-slate-800"><FolderPlus className="text-indigo-600"/>{editingWorkspace.id ? 'ویرایش فضا' : 'فضا جدید'}</h3>
+                     <div className="space-y-4">
+                       <div className="space-y-2">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">عنوان فارسی</label>
+                          <input className="w-full p-3 bg-slate-50 border rounded-lg font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" value={editingWorkspace.title} onChange={e => setEditingWorkspace({...editingWorkspace, title: e.target.value})} placeholder="مثلاً: بورد اصلی" />
+                       </div>
+                       <div className="space-y-2">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">English Title</label>
+                          <input className="w-full p-3 bg-slate-50 border rounded-lg font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" dir="ltr" value={editingWorkspace.titleEn} onChange={e => setEditingWorkspace({...editingWorkspace, titleEn: e.target.value})} placeholder="e.g. Main Board" />
+                       </div>
+                       <div className="space-y-2">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">رنگ فضا (Theme Color)</label>
+                          <div className="flex gap-2 flex-wrap p-2 bg-slate-50 rounded-lg border border-slate-100">
+                             {COLOR_OPTIONS.map((opt) => (
+                               <button 
+                                 key={opt.name} 
+                                 onClick={() => setEditingWorkspace({...editingWorkspace, color: opt.name})} 
+                                 className={`w-8 h-8 rounded-full border shadow-sm transition-all hover:scale-110 active:scale-95 ${opt.bg} ${editingWorkspace.color === opt.name ? 'ring-2 ring-indigo-500 ring-offset-2 border-indigo-400 scale-110' : 'border-slate-300'}`} 
+                               />
+                             ))}
+                          </div>
+                       </div>
+                     </div>
+                     <div className="flex justify-between mt-8 pt-6 border-t border-slate-100">
+                        {editingWorkspace.id ? (
+                           <button 
+                             onClick={() => { setConfirmDialog({ isOpen: true, title: 'حذف فضا', message: 'آیا از حذف این فضا اطمینان دارید؟ تمام ایده‌های مرتبط نیز حذف خواهند شد.', onConfirm: async () => { await deleteDoc(doc(db, 'artifacts', FIXED_APP_ID, 'public', 'data', 'workspaces', editingWorkspace.id)); setIsWorkspaceModalOpen(false); if(workspaces.length > 1) setActiveWorkspaceId(workspaces[0].id); } }); }} 
+                             className="text-red-500 text-xs font-bold hover:bg-red-50 px-3 py-2 rounded-lg transition-colors"
+                           >
+                             حذف فضا
+                           </button>
+                        ) : <div/>}
+                        <div className="flex gap-3">
+                           <Button onClick={() => setIsWorkspaceModalOpen(false)} variant="secondary">انصراف</Button>
+                           <Button onClick={handleSaveWorkspace} icon={Save}>ذخیره فضا</Button>
+                        </div>
+                     </div>
+                   </div>
+                 </div>
+              )}
+
+              <SettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} settings={settings} onSaveSettings={async (newSettings) => { setSettings(newSettings); setIsSettingsModalOpen(false); await setDoc(doc(db, 'artifacts', FIXED_APP_ID, 'public', 'data', 'settings', 'global'), newSettings); }} />
+              <ConfirmDialog isOpen={confirmDialog.isOpen} title={confirmDialog.title} message={confirmDialog.message} onConfirm={confirmDialog.onConfirm} onClose={() => setConfirmDialog({...confirmDialog, isOpen: false})} />
+
+              <style>{`
+                @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;700;900&display=swap');
+                * { font-family: 'Vazirmatn', sans-serif !important; box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+                .font-sans { font-family: 'Inter', 'Vazirmatn', sans-serif !important; }
+                .custom-scrollbar::-webkit-scrollbar { width: 5px; height: 5px; }
+                .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 20px; }
+                @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+                @keyframes zoom-in { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
+                .animate-in { animation-fill-mode: both; }
+                .fade-in { animation-name: fade-in; animation-duration: 0.3s; }
+                .zoom-in-95 { animation-name: zoom-in; animation-duration: 0.2s; }
+              `}</style>
+            </div>
+          );
+        }
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
