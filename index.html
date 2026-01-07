@@ -134,6 +134,7 @@
           Maximize2,
           SearchCode,
           ZoomIn,
+          ZoomOut,
           Hand,
           MapPin,
           Image,
@@ -296,7 +297,7 @@
           return (
             <div className="fixed inset-0 z-[300] flex items-center justify-center p-6">
               <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-in fade-in" onClick={onClose}></div>
-              <div className="relative bg-white rounded-xl p-6 w-full max-sm shadow-2xl animate-in zoom-in-95 border-2 border-red-100">
+              <div className="relative bg-white rounded-xl p-6 w-full max-w-[400px] shadow-2xl animate-in zoom-in-95 border-2 border-red-100">
                 <div className="flex flex-col items-center text-center gap-4">
                   <div className="w-12 h-12 bg-red-50 text-red-500 rounded-xl flex items-center justify-center mb-2">
                     <AlertTriangle size={24} />
@@ -365,7 +366,7 @@
               {isExpanded && idea.children?.map(child => (
                 <SidebarItem 
                   key={child.id} idea={child} level={level + 1} langView={langView} selectedId={selectedId} 
-                  onSelect={onSelect} onExpand={onExpand} expandedIds={expandedIds} 
+                  onSelect={node => onSelect(node)} onExpand={onExpand} expandedIds={expandedIds} 
                   onAddChild={onAddChild} onDragStart={onDragStart} onDrop={onDrop} onRequestDelete={onRequestDelete}
                 />
               ))}
@@ -770,6 +771,7 @@
           const [isFitToScreen, setIsFitToScreen] = useState(false);
           const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
           const [containerWidth, setContainerWidth] = useState(0);
+          const [zoomFactor, setZoomFactor] = useState(1);
 
           const ganttScrollRef = useRef(null);
           const [isDraggingGantt, setIsDraggingGantt] = useState(false);
@@ -942,12 +944,15 @@
           }, [ganttRange, timeScale]);
 
           const UNIT_WIDTH = useMemo(() => {
+             let base = 0;
              if (isFitToScreen && containerWidth > 0 && ganttIntervals.length > 0) {
-                // Calculation: Container Width divided by total intervals to fit exactly
-                return Math.floor(containerWidth / ganttIntervals.length);
+                base = Math.floor(containerWidth / ganttIntervals.length);
+             } else {
+                base = timeScale === 'daily' ? 40 : timeScale === 'weekly' ? 120 : 250;
              }
-             return timeScale === 'daily' ? 40 : timeScale === 'weekly' ? 120 : 250;
-          }, [timeScale, isFitToScreen, containerWidth, ganttIntervals]);
+             // Apply Zoom Factor with constraints (min 20px)
+             return Math.max(20, Math.floor(base * zoomFactor));
+          }, [timeScale, isFitToScreen, containerWidth, ganttIntervals, zoomFactor]);
 
           const getGanttPos = (date) => {
               if (!date || !ganttRange.start) return 0;
@@ -1066,12 +1071,17 @@
                               {['daily', 'weekly', 'monthly'].map(scale => (
                                  <button 
                                     key={scale}
-                                    onClick={() => { setTimeScale(scale); setIsFitToScreen(false); }}
+                                    onClick={() => { setTimeScale(scale); setIsFitToScreen(false); setZoomFactor(1); }}
                                     className={`px-3 py-1 rounded-lg text-[9px] font-black transition-all ${!isFitToScreen && timeScale === scale ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:bg-white'}`}
                                  >
                                     {scale === 'daily' ? 'روزانه' : scale === 'weekly' ? 'هفتگی' : 'ماهانه'}
                                  </button>
                               ))}
+                           </div>
+                           <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg p-1">
+                              <IconButton icon={ZoomOut} onClick={() => setZoomFactor(prev => Math.max(0.2, prev / 1.2))} title="Zoom Out" size={14} />
+                              <span className="text-[9px] font-black text-slate-400 w-8 text-center">{Math.round(zoomFactor * 100)}%</span>
+                              <IconButton icon={ZoomIn} onClick={() => setZoomFactor(prev => Math.min(3, prev * 1.2))} title="Zoom In" size={14} />
                            </div>
                            <button 
                               onClick={() => setIsFitToScreen(!isFitToScreen)}
@@ -1214,7 +1224,14 @@
                                             >
                                                {node.children?.length > 0 ? <ChevronDown size={12} className="text-slate-400" /> : <div className="w-3 h-3" />}
                                             </button>
-                                            <span className="text-[10px] font-bold text-slate-700 truncate">{langView === 'fa' ? node.title : node.titleEn}</span>
+                                            <span className="text-[10px] font-bold text-slate-700 truncate">
+                                                {langView === 'fa' ? node.title : node.titleEn}
+                                                {node.duration && parseInt(node.duration) > 0 && (
+                                                    <span className="text-slate-400 font-normal mr-1 ml-1 text-[9px]">
+                                                        ({node.duration} {langView === 'fa' ? 'روز' : 'days'})
+                                                    </span>
+                                                )}
+                                            </span>
                                          </div>
                                       ))}
                                    </div>
@@ -1809,7 +1826,16 @@
                     <div className="flex-1 overflow-y-auto p-10 custom-scrollbar bg-slate-50/20">
                       <IdeaDetailsContent idea={selectedIdea} onUpdate={handleUpdate} onPriorityChange={handlePriorityChange} settings={settings} langView={langView} allIdeas={ideas} workspaces={workspaces} onRequestDelete={requestDeleteIdea} />
                     </div>
-                    <footer className="p-6 border-t border-slate-100 bg-white flex justify-end gap-4"><Button onClick={() => setIsModalOpen(false)} variant="secondary" className="px-8">بستن</Button><Button onClick={() => setIsModalOpen(false)} icon={Save} className="px-14">ذخیره</Button></footer>
+                    <footer className="p-6 border-t border-slate-100 bg-white flex justify-end items-center gap-4">
+                        <button 
+                          onClick={() => requestDeleteIdea(selectedIdea.id)} 
+                          className="mr-auto text-red-500 hover:bg-red-50 px-4 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-2"
+                        >
+                            <Trash2 size={16} /> {langView === 'fa' ? 'حذف ایده' : 'Delete Idea'}
+                        </button>
+                        <Button onClick={() => setIsModalOpen(false)} variant="secondary" className="px-8">بستن</Button>
+                        <Button onClick={() => setIsModalOpen(false)} icon={Save} className="px-14">ذخیره</Button>
+                    </footer>
                   </div>
                 </div>
               )}
