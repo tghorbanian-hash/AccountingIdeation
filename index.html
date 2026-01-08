@@ -864,20 +864,11 @@
               const walk = (nodes, level = 0) => {
                   nodes.forEach(node => {
                       list.push({ ...node, level });
-                      if (expandedInGantt.has(node.id)) walk(node.children, level + 1);
+                      if (expandedInGantt.has(node.id)) walk(node.children || [], level + 1);
                   });
               };
-              walk(node.children || [], level + 1); // Helper structure logic
-              // Reset list for proper generation
-              const actualList = [];
-              const actualWalk = (nodes, level = 0) => {
-                  nodes.forEach(node => {
-                      actualList.push({ ...node, level });
-                      if (expandedInGantt.has(node.id)) actualWalk(node.children || [], level + 1);
-                  });
-              };
-              actualWalk(ganttData);
-              return actualList;
+              walk(ganttData);
+              return list;
           }, [ganttData, expandedInGantt]);
 
           const ganttRange = useMemo(() => {
