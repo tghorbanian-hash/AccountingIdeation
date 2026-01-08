@@ -719,7 +719,7 @@
                 <div className="p-4 animate-in fade-in duration-300">
                    {activeTab === 'docs' ? (
                       <textarea 
-                        className="w-full h-[220px] p-4 bg-slate-50/20 border-none rounded-lg text-[11px] leading-relaxed outline-none shadow-inner resize-none focus:bg-white transition-all"
+                        className="w-full h-[220px] p-4 bg-slate-50/20 border-none rounded-lg text-sm leading-relaxed outline-none shadow-inner resize-none focus:bg-white transition-all"
                         placeholder="توضیحات و مستندات مربوط به این ایده را اینجا وارد کنید..."
                         value={idea.description || ''}
                         onChange={(e) => onUpdate({...idea, description: e.target.value})}
@@ -867,8 +867,17 @@
                       if (expandedInGantt.has(node.id)) walk(node.children, level + 1);
                   });
               };
-              walk(ganttData);
-              return list;
+              walk(node.children || [], level + 1); // Helper structure logic
+              // Reset list for proper generation
+              const actualList = [];
+              const actualWalk = (nodes, level = 0) => {
+                  nodes.forEach(node => {
+                      actualList.push({ ...node, level });
+                      if (expandedInGantt.has(node.id)) actualWalk(node.children || [], level + 1);
+                  });
+              };
+              actualWalk(ganttData);
+              return actualList;
           }, [ganttData, expandedInGantt]);
 
           const ganttRange = useMemo(() => {
