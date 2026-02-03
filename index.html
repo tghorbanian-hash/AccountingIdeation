@@ -40,7 +40,7 @@
     }
     </script>
 
-    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.26.9/babel.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <style>
         body { background-color: #f8fafc; }
@@ -66,7 +66,7 @@
 <body>
     <div id="root"></div>
 
-    <script type="text/babel" data-type="module" data-targets="defaults">
+    <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useMemo, useCallback, memo, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
         import { initializeApp } from 'firebase/app';
@@ -1912,4 +1912,3 @@
     </script>
 </body>
 </html>
-
