@@ -6,11 +6,13 @@
     <title>Idea Management System</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     
     <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;700;900&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
 
     <script>
+        // Configuration for Tailwind
         window.addEventListener('DOMContentLoaded', () => {
             if (typeof tailwind !== 'undefined') {
                 tailwind.config = {
@@ -141,8 +143,13 @@
           Link,
           Expand,
           PanelLeftClose,
-          PanelLeftOpen
+          PanelLeftOpen,
+          Download
         } from 'lucide-react';
+
+        // ------------------------------------------------------------------
+        // Utilities
+        // ------------------------------------------------------------------
 
         const parseSafeDate = (dateStr) => {
             if (!dateStr) return null;
@@ -260,6 +267,8 @@
 
             return { start, end };
         };
+
+        // --- UI Components ---
 
         const IconButton = ({ icon: Icon, onClick, className = "", title = "", size = 14 }) => (
           <button
@@ -1082,6 +1091,80 @@
             }
           };
 
+          const handleExportExcel = () => {
+              if (typeof window.XLSX === 'undefined') {
+                  alert('کتابخانه اکسل هنوز بارگذاری نشده است. لطفا چند لحظه صبر کنید.');
+                  return;
+              }
+
+              const currentWorkspaceIdeas = ideas.filter(idea => idea.workspaceId === activeWorkspaceId || (!idea.workspaceId && workspaces[0]?.id === activeWorkspaceId));
+
+              const buildTree = (parentId = null, level = 0, path = []) => {
+                  const nodes = currentWorkspaceIdeas.filter(i => i.parentId === parentId);
+                  let rows = [];
+                  nodes.forEach(node => {
+                      const currentPath = [...path, node.title || 'بدون عنوان'];
+                      const statusTitle = settings?.statuses?.find(s => s.id === node.statusId)?.title || '';
+                      
+                      const row = {
+                          'ردیف': '', 
+                          'سطح': level + 1,
+                          'مسیر درختی': currentPath.join(' > '),
+                          'عنوان ایده (فارسی)': '   '.repeat(level) + (node.title || 'بدون عنوان'),
+                          'عنوان ایده (انگلیسی)': node.titleEn || '',
+                          'وضعیت': statusTitle,
+                          'اولویت': node.priority || 0,
+                          'تاریخ شروع': node.startDate || '',
+                          'تاریخ پایان': node.endDate || '',
+                          'مدت (روز)': node.duration || '',
+                          'تگ‌ها': (node.tags || []).join('، '),
+                          'تعداد لینک‌های پیوست': (node.links || []).length,
+                          'تعداد تصاویر پیوست': (node.images || []).length + (node.imageUrl ? 1 : 0),
+                          'توضیحات و مستندات': node.description || ''
+                      };
+                      rows.push(row);
+                      rows = rows.concat(buildTree(node.id, level + 1, currentPath));
+                  });
+                  return rows;
+              };
+
+              const data = buildTree();
+              
+              if (data.length === 0) {
+                  alert('ایده‌ای برای دریافت خروجی در این فضا وجود ندارد.');
+                  return;
+              }
+
+              data.forEach((r, i) => r['ردیف'] = i + 1);
+
+              const ws = window.XLSX.utils.json_to_sheet(data);
+              
+              ws['!cols'] = [
+                  {wch: 5},  // ردیف
+                  {wch: 5},  // سطح
+                  {wch: 40}, // مسیر
+                  {wch: 40}, // عنوان
+                  {wch: 25}, // انگلیسی
+                  {wch: 15}, // وضعیت
+                  {wch: 8},  // اولویت
+                  {wch: 12}, // شروع
+                  {wch: 12}, // پایان
+                  {wch: 10}, // مدت
+                  {wch: 25}, // تگ
+                  {wch: 20}, // لینک
+                  {wch: 20}, // تصویر
+                  {wch: 60}  // توضیحات
+              ];
+
+              const wb = window.XLSX.utils.book_new();
+              window.XLSX.utils.book_append_sheet(wb, ws, "Ideas");
+
+              const wsTitle = workspaces.find(w => w.id === activeWorkspaceId)?.title || 'Workspace';
+              const fileName = `گزارش_ایده_ها_${wsTitle.replace(/\s+/g, '_')}.xlsx`;
+              
+              window.XLSX.writeFile(wb, fileName);
+          };
+
           if (loading) return <div className="h-screen w-full flex items-center justify-center bg-slate-50"><div className="animate-spin w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full"></div></div>;
 
           return (
@@ -1194,6 +1277,9 @@
                     )}
 
                     <div className="flex items-center gap-2">
+                      <button onClick={handleExportExcel} className="flex items-center gap-2 px-4 py-2 text-[11px] font-black text-emerald-600 bg-emerald-50 rounded-lg border border-emerald-100 h-10 hover:bg-emerald-100 transition-colors" title="خروجی اکسل از این فضا">
+                         <Download size={16} /> خروجی اکسل
+                      </button>
                       <IconButton icon={Sliders} onClick={() => setIsSettingsModalOpen(true)} className="bg-slate-100 h-10 w-10" size={18} />
                       <Button onClick={() => addIdea(null)} icon={Plus} className="h-10">ایده ریشه</Button>
                       <button onClick={() => setLangView(langView === 'fa' ? 'en' : 'fa')} className="flex items-center gap-2 px-4 py-2 text-[11px] font-black text-indigo-600 bg-indigo-50 rounded-lg border border-indigo-100 h-10"><Globe size={16} /> {langView === 'fa' ? 'EN' : 'FA'}</button>
