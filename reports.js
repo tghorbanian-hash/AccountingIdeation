@@ -1,4 +1,4 @@
-// File Name: reports.js
+// reports.js
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
@@ -6,12 +6,12 @@ import {
     ChevronLeft, ChevronRight, PanelLeftOpen, PanelLeftClose, ChevronDown 
 } from 'lucide-react';
 
-const ReportsView = ({ ideas, settings, langView, workspaces, onUpdateIdea, onOpenIdea, utils }) => {
+const ReportsView = ({ ideas, settings, langView, workspaces, activeWorkspaceId, onUpdateIdea, onOpenIdea, utils }) => {
   const { formatDateToISO, getEffectiveDates, parseSafeDate, getDaysDifference, COLOR_OPTIONS, IconButton } = utils;
   
   const node = null;
   const [subView, setSubView] = useState('calendar');
-  const [selectedWSIds, setSelectedWSIds] = useState(new Set(workspaces.map(w => w.id)));
+  const [selectedWSIds, setSelectedWSIds] = useState(new Set(activeWorkspaceId ? [activeWorkspaceId] : workspaces.map(w => w.id)));
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [expandedInGantt, setExpandedInGantt] = useState(new Set());
   const [timeScale, setTimeScale] = useState('daily');
@@ -145,7 +145,6 @@ const ReportsView = ({ ideas, settings, langView, workspaces, onUpdateIdea, onOp
       let s = new Date(minTimestamp);
       let e = new Date(maxTimestamp);
 
-      // Normalize to midnight
       s = new Date(s.getFullYear(), s.getMonth(), s.getDate(), 0, 0, 0, 0);
       e = new Date(e.getFullYear(), e.getMonth(), e.getDate(), 0, 0, 0, 0);
 
@@ -204,7 +203,6 @@ const ReportsView = ({ ideas, settings, langView, workspaces, onUpdateIdea, onOp
      } else {
         base = timeScale === 'daily' ? 40 : timeScale === 'weekly' ? 120 : 250;
      }
-     // Apply Zoom Factor with constraints (min 20px)
      return Math.max(20, Math.floor(base * zoomFactor));
   }, [timeScale, isFitToScreen, containerWidth, ganttIntervals, zoomFactor]);
 
@@ -218,7 +216,6 @@ const ReportsView = ({ ideas, settings, langView, workspaces, onUpdateIdea, onOp
       if (timeScale === 'daily') {
           const diffDays = diffMs / msPerDay;
           return diffDays * UNIT_WIDTH;
-          // Apply User specific rule: Always show numbers in the system in English. I don't want Farsi or Arabic characters for numbers at all.
       } else if (timeScale === 'weekly') {
           const diffWeeks = diffMs / (msPerDay * 7);
           return diffWeeks * UNIT_WIDTH;
@@ -257,7 +254,6 @@ const ReportsView = ({ ideas, settings, langView, workspaces, onUpdateIdea, onOp
           targetDate.setDate(Math.max(1, Math.round(fraction * daysInMonth)));
       }
 
-      // Normalize to start of day
       targetDate = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 0,0,0,0);
       const targetISO = formatDateToISO(targetDate);
 
@@ -445,7 +441,6 @@ const ReportsView = ({ ideas, settings, langView, workspaces, onUpdateIdea, onOp
                     </h3>
                  </div>
                  <div className="flex-1 flex overflow-hidden w-full">
-                    {/* Toggle Sidebar Button */}
                     <button 
                        onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
                        className="absolute bottom-6 left-6 z-[100] w-10 h-10 bg-white border border-slate-200 rounded-full shadow-2xl flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:scale-110 transition-all active:scale-95"

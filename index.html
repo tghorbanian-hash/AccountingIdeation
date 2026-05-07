@@ -11,7 +11,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
 
     <script>
-        // Configuration for Tailwind
         window.addEventListener('DOMContentLoaded', () => {
             if (typeof tailwind !== 'undefined') {
                 tailwind.config = {
@@ -145,10 +144,6 @@
           PanelLeftOpen
         } from 'lucide-react';
 
-        // ------------------------------------------------------------------
-        // Utilities
-        // ------------------------------------------------------------------
-
         const parseSafeDate = (dateStr) => {
             if (!dateStr) return null;
             const parts = dateStr.split('-');
@@ -265,8 +260,6 @@
 
             return { start, end };
         };
-
-        // --- UI Components ---
 
         const IconButton = ({ icon: Icon, onClick, className = "", title = "", size = 14 }) => (
           <button
@@ -621,7 +614,7 @@
                     </div>
                     <div className="flex items-center justify-between gap-3 bg-white px-3 py-1.5 rounded-lg border border-slate-200">
                         <label className="text-[10px] font-black text-slate-400 whitespace-nowrap">مدت (روز):</label>
-                        <input type="number" className="text-[11px] font-bold text-slate-700 bg-transparent outline-none w-full text-left" placeholder="۵" value={idea.duration || ''} onChange={(e) => handleDurationChange(e.target.value)} />
+                        <input type="number" className="text-[11px] font-bold text-slate-700 bg-transparent outline-none w-full text-left" placeholder="5" value={idea.duration || ''} onChange={(e) => handleDurationChange(e.target.value)} />
                     </div>
                     <div className="flex items-center justify-between gap-3 bg-white px-3 py-1.5 rounded-lg border border-slate-200">
                         <label className="text-[10px] font-black text-slate-400 whitespace-nowrap">پایان:</label>
@@ -1210,7 +1203,7 @@
                 <div className="flex-1 flex overflow-hidden w-full">
                   {viewMode === 'reports' ? (
                      ReportsView ? (
-                        <ReportsView ideas={ideas} settings={settings} langView={langView} workspaces={workspaces} onUpdateIdea={handleUpdate} onOpenIdea={(i) => { setSelectedIdea(i); setIsModalOpen(true); }} utils={{ formatDateToISO, getEffectiveDates, parseSafeDate, getDaysDifference, COLOR_OPTIONS, IconButton }} />
+                        <ReportsView ideas={ideas} settings={settings} langView={langView} workspaces={workspaces} activeWorkspaceId={activeWorkspaceId} onUpdateIdea={handleUpdate} onOpenIdea={(i) => { setSelectedIdea(i); setIsModalOpen(true); }} utils={{ formatDateToISO, getEffectiveDates, parseSafeDate, getDaysDifference, COLOR_OPTIONS, IconButton }} />
                      ) : (
                         <div className="flex h-full w-full flex-col items-center justify-center gap-3 opacity-60">
                             <BarChart2 size={48} className="text-slate-400 animate-pulse" />
