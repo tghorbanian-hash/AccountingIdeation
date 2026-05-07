@@ -233,21 +233,26 @@
         const getIdeaPath = (allIdeas, ideaId) => {
            let path = [];
            let current = allIdeas.find(i => i.id === ideaId);
-           while (current) {
+           let visited = new Set();
+           while (current && !visited.has(current.id)) {
+              visited.add(current.id);
               path.unshift(current);
               current = allIdeas.find(i => i.id === current.parentId);
            }
            return path;
         };
 
-        const getEffectiveDates = (idea, allIdeas) => {
+        const getEffectiveDates = (idea, allIdeas, visited = new Set()) => {
+            if (!idea || visited.has(idea.id)) return { start: null, end: null };
+            visited.add(idea.id);
+
             let start = idea.startDate ? parseSafeDate(idea.startDate) : null;
             let end = idea.endDate ? parseSafeDate(idea.endDate) : null;
 
             const children = allIdeas.filter(i => i.parentId === idea.id);
             if (children.length > 0) {
                 children.forEach(child => {
-                    const childDates = getEffectiveDates(child, allIdeas);
+                    const childDates = getEffectiveDates(child, allIdeas, visited);
                     if (childDates.start) {
                         if (!start || childDates.start < start) start = childDates.start;
                     }
@@ -852,10 +857,14 @@
             onUpdateIdea({ ...idea, ...updates });
           };
 
-          const buildGanttTree = useCallback((parentId = null) => {
+          const buildGanttTree = useCallback((parentId = null, visited = new Set()) => {
              return filteredIdeas
                 .filter(i => i.parentId === parentId)
-                .map(i => ({ ...i, children: buildGanttTree(i.id) }));
+                .map(i => {
+                   if (visited.has(i.id)) return { ...i, children: [] };
+                   const newVisited = new Set(visited).add(i.id);
+                   return { ...i, children: buildGanttTree(i.id, newVisited) };
+                });
           }, [filteredIdeas]);
 
           const ganttData = useMemo(() => buildGanttTree(null), [buildGanttTree]);
@@ -1535,8 +1544,12 @@
             return ideas.filter(idea => idea.workspaceId === activeWorkspaceId || (!idea.workspaceId && workspaces[0]?.id === activeWorkspaceId));
           }, [ideas, activeWorkspaceId, workspaces]);
 
-          const buildTreeData = useCallback((data, parentId = null) => {
-            return data.filter(item => item.parentId === parentId).map(item => ({ ...item, children: buildTreeData(data, item.id) }));
+          const buildTreeData = useCallback((data, parentId = null, visited = new Set()) => {
+            return data.filter(item => item.parentId === parentId).map(item => {
+              if (visited.has(item.id)) return { ...item, children: [] };
+              const newVisited = new Set(visited).add(item.id);
+              return { ...item, children: buildTreeData(data, item.id, newVisited) };
+            });
           }, []);
 
           const filteredTreeData = useMemo(() => {
@@ -1599,7 +1612,7 @@
             const id = (typeof idOrObj === 'object' && idOrObj !== null) ? idOrObj.id : idOrObj;
             setConfirmDialog({ isOpen: true, title: 'حذف ایده', message: 'آیا از حذف این ایده و تمام زیرمجموعه‌های آن اطمینان دارید؟', onConfirm: async () => {
               const toDelete = new Set([id]);
-              const findChildren = (pid) => ideas.forEach(i => { if (i.parentId === pid) { toDelete.add(i.id); findChildren(i.id); } });
+              const findChildren = (pid) => ideas.forEach(i => { if (i.parentId === pid && !toDelete.has(i.id)) { toDelete.add(i.id); findChildren(i.id); } });
               findChildren(id);
               await Promise.all(Array.from(toDelete).map(delId => deleteDoc(doc(db, 'artifacts', FIXED_APP_ID, 'public', 'data', 'ideas', delId))));
               if (selectedIdea && toDelete.has(selectedIdea.id)) { setSelectedIdea(null); setIsModalOpen(false); }
